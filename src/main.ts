@@ -73,6 +73,80 @@ import { Application, Assets, Sprite, Graphics, Container } from "pixi.js";
   
   world.addChild(bunny);
 
+  // Track bunny in grid
+  grid[centerGridY][centerGridX] = {
+    type: "bunny",
+    sprite: bunny
+  };
+
+  // Function to place sprite in grid
+  function placeSprite(gridX: number, gridY: number, sprite: Sprite, type: string): boolean {
+    // Check if position is valid and cell is empty
+    if (gridX < 0 || gridX >= GRID_WIDTH || gridY < 0 || gridY >= GRID_HEIGHT) {
+      console.log("Position out of bounds");
+      return false;
+    }
+    
+    if (grid[gridY][gridX] !== null) {
+      console.log("Cell already occupied");
+      return false;
+    }
+    
+    // Place sprite
+    grid[gridY][gridX] = { type, sprite };
+    const worldPos = gridToWorld(gridX, gridY);
+    sprite.position.set(worldPos.x, worldPos.y);
+    world.addChild(sprite);
+    
+    return true;
+  }
+
+  // Function to move sprite from one grid cell to another
+  function moveSprite(fromX: number, fromY: number, toX: number, toY: number): boolean {
+    // Validate bounds
+    if (fromX < 0 || fromX >= GRID_WIDTH || fromY < 0 || fromY >= GRID_HEIGHT ||
+        toX < 0 || toX >= GRID_WIDTH || toY < 0 || toY >= GRID_HEIGHT) {
+      return false;
+    }
+    
+    const fromCell = grid[fromY][fromX];
+    if (fromCell === null) {
+      console.log("No sprite at source position");
+      return false;
+    }
+    
+    if (grid[toY][toX] !== null) {
+      console.log("Destination cell occupied");
+      return false;
+    }
+    
+    // Move sprite
+    grid[toY][toX] = fromCell;
+    grid[fromY][fromX] = null;
+    
+    const worldPos = gridToWorld(toX, toY);
+    fromCell.sprite.position.set(worldPos.x, worldPos.y);
+    
+    return true;
+  }
+
+  // Function to remove sprite from grid
+  function removeSprite(gridX: number, gridY: number): boolean {
+    if (gridX < 0 || gridX >= GRID_WIDTH || gridY < 0 || gridY >= GRID_HEIGHT) {
+      return false;
+    }
+    
+    const cell = grid[gridY][gridX];
+    if (cell === null) {
+      return false;
+    }
+    
+    world.removeChild(cell.sprite);
+    grid[gridY][gridX] = null;
+    
+    return true;
+  }
+
   // Draw grid lines for visualization
   const gridGraphics = new Graphics();
   world.addChild(gridGraphics);
@@ -155,7 +229,12 @@ import { Application, Assets, Sprite, Graphics, Container } from "pixi.js";
     
     // Check if click is within grid bounds
     if (gridX >= 0 && gridX < GRID_WIDTH && gridY >= 0 && gridY < GRID_HEIGHT) {
-      console.log("Valid grid cell");
+      const cell = grid[gridY][gridX];
+      if (cell !== null) {
+        console.log(`Cell contains: ${cell.type}`);
+      } else {
+        console.log("Cell is empty");
+      }
     }
   });
 
