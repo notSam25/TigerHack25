@@ -266,61 +266,10 @@ export class Engine {
     const blackHoleScale = blackHoleTexture ? (this.TILE_SIZE * BLACK_HOLE_TILES) / blackHoleTexture.width : 1;
     const planetScale = (this.TILE_SIZE * PLANET_TILES) / planetTexture.width;
 
-    // Generate asteroids
-    let placed = 0;
-    let attempts = 0;
-    const maxAttempts = NUM_ASTEROIDS * 10;
+    // Shield radius is 1.4x the planet radius (to match visual scale)
+    const shieldRadius = Math.round(PLANET_RADIUS * 1.4);
 
-    while (placed < NUM_ASTEROIDS && attempts < maxAttempts) {
-      attempts++;
-      const x = Math.floor(Math.random() * this.GRID_WIDTH);
-      const y = Math.floor(Math.random() * this.GRID_HEIGHT);
-
-      if (this.canPlaceInRadius(x, y, ASTEROID_RADIUS)) {
-        const rotationSpeed =
-          (Math.random() * (ASTEROID_ROTATION_MAX - ASTEROID_ROTATION_MIN) +
-            ASTEROID_ROTATION_MIN) *
-          (Math.random() < 0.5 ? 1 : -1);
-
-        // Random scale between 0.5 and 1.5
-        const randomScale = 0.5 + Math.random();
-
-        const asteroid = createSprite("asteroid", {
-          texture: asteroidTexture,
-          rotationSpeed,
-          scale: randomScale,
-        });
-
-        this.placeSprite(x, y, asteroid);
-        placed++;
-      }
-    }
-    console.log(`Placed ${placed} asteroids out of ${NUM_ASTEROIDS} attempts`);
-
-    // Generate black holes as large obstacles in the middle zone between planets
-    if (blackHoleTexture) {
-      let blackHolesPlaced = 0;
-      for (let attempt = 0; attempt < 100 && blackHolesPlaced < NUM_BLACK_HOLES; attempt++) {
-        // Bias black holes to spawn in the middle 60% of the map (20-80% from left edge)
-        const x = Math.floor(this.GRID_WIDTH * 0.2 + Math.random() * (this.GRID_WIDTH * 0.6));
-        const y = Math.floor(Math.random() * this.GRID_HEIGHT);
-
-        if (this.canPlaceInRadius(x, y, BLACK_HOLE_RADIUS)) {
-          const rotationSpeed = Math.random() * 0.003 + 0.001; // Slow rotation
-          const blackHole = createSprite("blackhole", {
-            texture: blackHoleTexture,
-            rotationSpeed,
-          });
-          (blackHole.getDisplay() as Sprite).scale.set(blackHoleScale);
-
-          this.placeSprite(x, y, blackHole);
-          blackHolesPlaced++;
-        }
-      }
-      console.log(`Placed ${blackHolesPlaced} black holes out of ${NUM_BLACK_HOLES} attempts`);
-    }
-
-    // Generate planets with shared rotation speed for fairness, but different starting rotations
+    // Generate planets FIRST (so asteroids can avoid them)
     const sharedRotationSpeed =
       (Math.random() * (PLANET_ROTATION_MAX - PLANET_ROTATION_MIN) +
         PLANET_ROTATION_MIN) *
@@ -374,6 +323,72 @@ export class Engine {
         this.placeSprite(x, y, planet2);
         break;
       }
+    }
+
+    // Generate asteroids (avoiding planet shields)
+    let placed = 0;
+    let attempts = 0;
+    const maxAttempts = NUM_ASTEROIDS * 10;
+
+    while (placed < NUM_ASTEROIDS && attempts < maxAttempts) {
+      attempts++;
+      const x = Math.floor(Math.random() * this.GRID_WIDTH);
+      const y = Math.floor(Math.random() * this.GRID_HEIGHT);
+
+      // Check if position is valid and not within shield radius of any planet
+      let tooCloseToShield = false;
+      for (const planet of this.planets) {
+        const dx = x - planet.centerX;
+        const dy = y - planet.centerY;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        if (distance < shieldRadius) {
+          tooCloseToShield = true;
+          break;
+        }
+      }
+
+      if (!tooCloseToShield && this.canPlaceInRadius(x, y, ASTEROID_RADIUS)) {
+        const rotationSpeed =
+          (Math.random() * (ASTEROID_ROTATION_MAX - ASTEROID_ROTATION_MIN) +
+            ASTEROID_ROTATION_MIN) *
+          (Math.random() < 0.5 ? 1 : -1);
+
+        // Random scale between 0.5 and 1.5
+        const randomScale = 0.5 + Math.random();
+
+        const asteroid = createSprite("asteroid", {
+          texture: asteroidTexture,
+          rotationSpeed,
+          scale: randomScale,
+        });
+
+        this.placeSprite(x, y, asteroid);
+        placed++;
+      }
+    }
+    console.log(`Placed ${placed} asteroids out of ${NUM_ASTEROIDS} attempts`);
+
+    // Generate black holes as large obstacles in the middle zone between planets
+    if (blackHoleTexture) {
+      let blackHolesPlaced = 0;
+      for (let attempt = 0; attempt < 100 && blackHolesPlaced < NUM_BLACK_HOLES; attempt++) {
+        // Bias black holes to spawn in the middle 60% of the map (20-80% from left edge)
+        const x = Math.floor(this.GRID_WIDTH * 0.2 + Math.random() * (this.GRID_WIDTH * 0.6));
+        const y = Math.floor(Math.random() * this.GRID_HEIGHT);
+
+        if (this.canPlaceInRadius(x, y, BLACK_HOLE_RADIUS)) {
+          const rotationSpeed = Math.random() * 0.003 + 0.001; // Slow rotation
+          const blackHole = createSprite("blackhole", {
+            texture: blackHoleTexture,
+            rotationSpeed,
+          });
+          (blackHole.getDisplay() as Sprite).scale.set(blackHoleScale);
+
+          this.placeSprite(x, y, blackHole);
+          blackHolesPlaced++;
+        }
+      }
+      console.log(`Placed ${blackHolesPlaced} black holes out of ${NUM_BLACK_HOLES} attempts`);
     }
   }
 
