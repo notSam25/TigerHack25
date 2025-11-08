@@ -1,4 +1,4 @@
-import { Sprite, Container, Texture } from "pixi.js";
+import { Sprite, Container, Texture, Rectangle } from "pixi.js";
 
 /**
  * Base game sprite interface/wrapper.
@@ -95,10 +95,78 @@ export class PlanetSprite extends GameSprite {
   }
 }
 
-/**
- * A simple generic sprite wrapper. If a texture is provided it uses a PIXI.Sprite,
- * otherwise it uses a PIXI.Container (useful for grouping or placeholder objects).
- */
+export class ExplosionSprite extends GameSprite {
+  private currentFrame: number = 0;
+  private totalFrames: number;
+  private frameWidth: number;
+  private frameHeight: number;
+  private framesPerRow: number;
+  private animationSpeed: number;
+  private sprite: Sprite;
+
+  constructor(
+    texture: Texture,
+    x: number,
+    y: number,
+    scale: number = 1,
+    totalFrames: number = 8,
+    frameWidth: number = 64,
+    frameHeight: number = 64,
+    framesPerRow: number = 8,
+    animationSpeed: number = 0.5
+  ) {
+    const sprite = new Sprite(texture);
+    sprite.anchor.set(0.5);
+    super(sprite, "Explosion", "Effect", 1, 1, 0, false);
+    
+    this.sprite = sprite;
+    this.totalFrames = totalFrames;
+    this.frameWidth = frameWidth;
+    this.frameHeight = frameHeight;
+    this.framesPerRow = framesPerRow;
+    this.animationSpeed = animationSpeed;
+    
+    // Set initial frame
+    this.updateFrame(0);
+    
+    sprite.position.set(x, y);
+    sprite.scale.set(scale);
+    
+    this.display = sprite;
+  }
+
+  private updateFrame(frameIndex: number) {
+    const row = Math.floor(frameIndex / this.framesPerRow);
+    const col = frameIndex % this.framesPerRow;
+    
+    const x = col * this.frameWidth;
+    const y = row * this.frameHeight;
+    
+    // Create a new texture from a region of the sprite sheet
+    this.sprite.texture = new Texture({
+      source: this.sprite.texture.source,
+      frame: new Rectangle(x, y, this.frameWidth, this.frameHeight),
+    });
+  }
+
+  update(delta: number) {
+    this.currentFrame += this.animationSpeed * delta;
+    
+    const frameIndex = Math.floor(this.currentFrame);
+    
+    if (frameIndex < this.totalFrames) {
+      this.updateFrame(frameIndex);
+    } else {
+      // Animation finished - make invisible
+      this.sprite.alpha = 0;
+    }
+  }
+
+  isFinished(): boolean {
+    return Math.floor(this.currentFrame) >= this.totalFrames;
+  }
+}
+
 export class GenericSprite extends GameSprite {
   constructor(texture?: Texture) {
     const display = texture ? new Sprite(texture) : new Container();

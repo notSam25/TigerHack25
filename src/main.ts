@@ -15,6 +15,7 @@ import { Engine } from "./engine";
   const asteroidTexture = await Assets.load("/assets/asteroid.png");
   const planetTexture = await Assets.load("/assets/planet.jpg");
   const bunnyTexture = await Assets.load("/assets/bunny.png");
+  const explosionTexture = await Assets.load("/assets/explosion.png");
 
   // Create game engine
   const engine = new Engine(app);
@@ -25,6 +26,7 @@ import { Engine } from "./engine";
   // Initialize UI
   engine.initToolbar(bunnyTexture);
   engine.initTooltip();
+  engine.setExplosionTexture(explosionTexture);
 
   // Start the game loop and event handlers
   engine.start();

@@ -25,3 +25,4 @@ dist-ssr
 
 # Old backup files
 src/main-old.ts
+src/main-backup.ts

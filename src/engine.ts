@@ -1,6 +1,6 @@
 import { Application, Container, Graphics, Ticker, Text, Sprite, Texture } from "pixi.js";
 import { Renderer } from "./renderer";
-import { GameSprite, GridCell, Grid, PlanetSprite, createSprite } from "./sprite";
+import { GameSprite, GridCell, Grid, PlanetSprite, ExplosionSprite, createSprite } from "./sprite";
 import {
   MIN_ZOOM,
   MAX_ZOOM,
@@ -30,9 +30,6 @@ export class Engine {
   private grid: Grid;
   private zoom = MIN_ZOOM;
   private targetZoom = MIN_ZOOM;
-  private readonly MIN_ZOOM = MIN_ZOOM;
-  private readonly MAX_ZOOM = MAX_ZOOM;
-  private readonly ZOOM_SPEED = ZOOM_SPEED;
 
   // panning
   private isDragging = false;
@@ -56,6 +53,7 @@ export class Engine {
   // Toolbar elements
   private trashCan!: Graphics;
   private bunnyTexture: Texture | null = null;
+  private explosionTexture: Texture | null = null;
   private gridToggleButton!: Graphics;
   private gridToggleText!: Text;
   
@@ -64,6 +62,9 @@ export class Engine {
   
   // Planets for tracking
   private planets: PlanetSprite[] = [];
+  
+  // Active explosions
+  private explosions: GameSprite[] = [];
 
   constructor(app: Application) {
     this.app = app;
@@ -260,7 +261,7 @@ export class Engine {
         placed++;
       }
     }
-    console.log(`Placed ${placed} asteroids`);
+    console.log(`Placed ${placed} asteroids out of ${NUM_ASTEROIDS} attempts`);
 
     // Generate planets with shared rotation speed for fairness
     const sharedRotationSpeed =
@@ -284,7 +285,6 @@ export class Engine {
         (planet1.getDisplay() as Sprite).scale.set(planetScale);
 
         this.placeSprite(x, y, planet1);
-        console.log(`Placed Planet 1 at (${x}, ${y})`);
         break;
       }
     }
@@ -305,7 +305,6 @@ export class Engine {
         (planet2.getDisplay() as Sprite).scale.set(planetScale);
 
         this.placeSprite(x, y, planet2);
-        console.log(`Placed Planet 2 at (${x}, ${y})`);
         break;
       }
     }
@@ -323,6 +322,11 @@ export class Engine {
     });
     this.tooltipText.visible = false;
     this.app.stage.addChild(this.tooltipText);
+  }
+
+  // Set explosion texture for creating explosion sprites
+  setExplosionTexture(texture: Texture) {
+    this.explosionTexture = texture;
   }
 
   // Show tooltip at cursor position with sprite info
@@ -388,8 +392,8 @@ export class Engine {
         event.preventDefault();
         this.targetZoom += -event.deltaY * 0.001;
         this.targetZoom = Math.max(
-          this.MIN_ZOOM,
-          Math.min(this.MAX_ZOOM, this.targetZoom),
+          MIN_ZOOM,
+          Math.min(MAX_ZOOM, this.targetZoom),
         );
       },
       { passive: false },
@@ -490,17 +494,13 @@ export class Engine {
               this.previewSprite.alpha = 1;
             } else {
               const success = this.moveSprite(this.draggedSpriteGridPos.x, this.draggedSpriteGridPos.y, gridX, gridY);
-              if (success) {
-                console.log(`Moved sprite from (${this.draggedSpriteGridPos.x}, ${this.draggedSpriteGridPos.y}) to (${gridX}, ${gridY})`);
-              } else {
-                console.log("Can't move there - returning to original position");
+              if (!success) {
                 const worldPos = this.gridToWorld(this.draggedSpriteGridPos.x, this.draggedSpriteGridPos.y);
                 this.previewSprite.position.set(worldPos.x, worldPos.y);
               }
               this.previewSprite.alpha = 1;
             }
           } else {
-            console.log("Outside grid - returning to original position");
             const worldPos = this.gridToWorld(this.draggedSpriteGridPos.x, this.draggedSpriteGridPos.y);
             this.previewSprite.position.set(worldPos.x, worldPos.y);
             this.previewSprite.alpha = 1;
@@ -675,7 +675,7 @@ export class Engine {
 
   private tick(time: Ticker) {
     const prevZoom = this.zoom;
-    this.zoom += (this.targetZoom - this.zoom) * this.ZOOM_SPEED;
+    this.zoom += (this.targetZoom - this.zoom) * ZOOM_SPEED;
 
     const centerX = this.app.screen.width / 2;
     const centerY = this.app.screen.height / 2;
@@ -709,6 +709,18 @@ export class Engine {
         if (cell.sprite && (!cell.centerX || (cell.centerX === x && cell.centerY === y))) {
           cell.sprite.update(time.deltaTime);
         }
+      }
+    }
+
+    // Update and clean up explosions
+    for (let i = this.explosions.length - 1; i >= 0; i--) {
+      const explosion = this.explosions[i];
+      explosion.update(time.deltaTime);
+      
+      // Remove finished explosions
+      if ((explosion as ExplosionSprite).isFinished()) {
+        this.world.removeChild(explosion.getDisplay());
+        this.explosions.splice(i, 1);
       }
     }
 
@@ -773,7 +785,6 @@ export class Engine {
   // Place sprite with radius occupation
   placeSprite(gridX: number, gridY: number, sprite: GameSprite): boolean {
     if (!this.canPlaceInRadius(gridX, gridY, sprite.radius)) {
-      console.log("Cannot place - cells occupied or out of bounds");
       return false;
     }
 
@@ -806,7 +817,6 @@ export class Engine {
   removeSprite(gridX: number, gridY: number): boolean {
     const cell = this.grid[gridY][gridX];
     if (!cell.sprite) {
-      console.log("No sprite at that position");
       return false;
     }
 
@@ -825,6 +835,10 @@ export class Engine {
     // Remove from world
     this.world.removeChild(sprite.getDisplay());
 
+    // Create explosion at the sprite's position
+    const worldPos = this.gridToWorld(gridX, gridY);
+    this.createExplosion(worldPos.x, worldPos.y, Math.max(radius / 3, 1));
+
     // Remove from planets array if it's a planet
     if (sprite instanceof PlanetSprite) {
       const index = this.planets.indexOf(sprite);
@@ -840,7 +854,6 @@ export class Engine {
   moveSprite(fromX: number, fromY: number, toX: number, toY: number): boolean {
     const fromCell = this.grid[fromY][fromX];
     if (!fromCell.sprite) {
-      console.log("No sprite at source position");
       return false;
     }
 
@@ -861,7 +874,6 @@ export class Engine {
     }
 
     if (!canPlace) {
-      console.log("Cannot move to that position");
       return false;
     }
 
@@ -889,5 +901,35 @@ export class Engine {
     sprite.getDisplay().position.set(worldPos.x, worldPos.y);
 
     return true;
+  }
+
+  // Create explosion effect
+  createExplosion(x: number, y: number, scale: number = 1) {
+    if (!this.explosionTexture) {
+      console.warn("No explosion texture loaded");
+      return;
+    }
+    
+    // Sprite sheet layout: 8 columns × 6 rows = 48 frames
+    const cols = 8;
+    const rows = 6;
+    const frameWidth = this.explosionTexture.width / cols;
+    const frameHeight = this.explosionTexture.height / rows;
+    
+    // Parameters: texture, x, y, scale, totalFrames, frameWidth, frameHeight, framesPerRow, animationSpeed
+    // 48 frames at 24 fps = animationSpeed of 24/60 = 0.4 (since game runs at 60 fps)
+    const explosion = new ExplosionSprite(
+      this.explosionTexture,
+      x,
+      y,
+      scale,
+      48,         // totalFrames - 48 frame sprite sheet
+      frameWidth, // frameWidth - calculated from texture
+      frameHeight, // frameHeight - calculated from texture
+      cols,       // framesPerRow - 8 columns
+      0.4         // animationSpeed - 24 fps (24 frames per second / 60 ticks per second = 0.4)
+    );
+    this.world.addChild(explosion.getDisplay());
+    this.explosions.push(explosion);
   }
 }
