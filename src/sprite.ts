@@ -6,9 +6,29 @@ import { Sprite, Container, Texture } from "pixi.js";
  */
 export abstract class GameSprite {
   display: Sprite | Container;
+  name: string;
+  type: string;
+  health: number;
+  maxHealth: number;
+  radius: number;
+  immutable: boolean;
 
-  constructor(display: Sprite | Container) {
+  constructor(
+    display: Sprite | Container,
+    name: string = "Unknown",
+    type: string = "Unknown",
+    health: number = 100,
+    maxHealth: number = 100,
+    radius: number = 0,
+    immutable: boolean = false
+  ) {
     this.display = display;
+    this.name = name;
+    this.type = type;
+    this.health = health;
+    this.maxHealth = maxHealth;
+    this.radius = radius;
+    this.immutable = immutable;
   }
 
   // Called each engine tick with delta time
@@ -24,12 +44,54 @@ export class BunnySprite extends GameSprite {
   constructor(texture: Texture) {
     const sprite = new Sprite(texture);
     sprite.anchor.set(0.5);
-    super(sprite);
+    super(sprite, "Building", "Building", 100, 100, 0, false);
+  }
+
+  update(_delta: number) {
+    // Buildings don't animate
+    void _delta;
+  }
+}
+
+export class AsteroidSprite extends GameSprite {
+  private rotationSpeed: number;
+
+  constructor(texture: Texture, rotationSpeed: number) {
+    const sprite = new Sprite(texture);
+    sprite.anchor.set(0.5);
+    super(sprite, "Asteroid", "Debris", 500, 500, 6, true);
+    this.rotationSpeed = rotationSpeed;
   }
 
   update(delta: number) {
-    // Keep previous behavior: rotate the bunny
-    (this.display as Sprite).rotation += 0.1 * delta;
+    (this.display as Sprite).rotation += this.rotationSpeed * delta;
+  }
+}
+
+export class PlanetSprite extends GameSprite {
+  private rotationSpeed: number;
+  centerX: number;
+  centerY: number;
+  currentRotation: number = 0;
+
+  constructor(
+    texture: Texture,
+    name: string,
+    rotationSpeed: number,
+    centerX: number,
+    centerY: number
+  ) {
+    const sprite = new Sprite(texture);
+    sprite.anchor.set(0.5);
+    super(sprite, name, "Planet", 1000, 1000, 12, true);
+    this.rotationSpeed = rotationSpeed;
+    this.centerX = centerX;
+    this.centerY = centerY;
+  }
+
+  update(delta: number) {
+    (this.display as Sprite).rotation += this.rotationSpeed * delta;
+    this.currentRotation += this.rotationSpeed * delta;
   }
 }
 
@@ -49,16 +111,20 @@ export class GenericSprite extends GameSprite {
   }
 }
 
-export type SpriteKind = "bunny" | "generic";
+export type SpriteKind = "bunny" | "asteroid" | "planet" | "generic";
 
 /**
  * Factory to create sprites of different kinds.
- * - "bunny" requires a texture in options.texture
- * - "generic" will create a GenericSprite (texture optional)
  */
 export function createSprite(
   kind: SpriteKind,
-  options?: { texture?: Texture },
+  options?: {
+    texture?: Texture;
+    rotationSpeed?: number;
+    name?: string;
+    centerX?: number;
+    centerY?: number;
+  }
 ): GameSprite {
   if (kind === "bunny") {
     if (!options || !options.texture) {
@@ -67,18 +133,44 @@ export function createSprite(
     return new BunnySprite(options.texture);
   }
 
+  if (kind === "asteroid") {
+    if (!options || !options.texture) {
+      throw new Error('createSprite("asteroid") requires options.texture');
+    }
+    return new AsteroidSprite(
+      options.texture,
+      options.rotationSpeed || 0.005
+    );
+  }
+
+  if (kind === "planet") {
+    if (!options || !options.texture) {
+      throw new Error('createSprite("planet") requires options.texture');
+    }
+    return new PlanetSprite(
+      options.texture,
+      options.name || "Planet",
+      options.rotationSpeed || 0.0005,
+      options.centerX || 0,
+      options.centerY || 0
+    );
+  }
+
   // default: generic
   return new GenericSprite(options?.texture);
 }
 
 /**
  * Grid cell type for a 2D gameplay grid.
- * - gravity: number (default 0) which can represent a local gravity multiplier/constant
- * - sprites: array of GameSprite instances currently occupying the cell
+ * Extended to support multi-tile sprites with radius
  */
 export interface GridCell {
   gravity: number;
-  sprites: GameSprite[];
+  sprite: GameSprite | null; // Single sprite reference (centermost cell)
+  // Reference to center cell if this is part of a multi-tile sprite
+  centerX?: number;
+  centerY?: number;
+  occupied: boolean;
 }
 
 export type Grid = GridCell[][];
@@ -91,7 +183,7 @@ export function createGrid(width: number, height: number): Grid {
   for (let y = 0; y < height; y++) {
     const row: GridCell[] = [];
     for (let x = 0; x < width; x++) {
-      row.push({ gravity: 0, sprites: [] });
+      row.push({ gravity: 0, sprite: null, occupied: false });
     }
     grid.push(row);
   }
