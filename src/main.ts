@@ -423,28 +423,6 @@ import { generateAsteroids, generateBasePlanets } from "./worldGen";
       planet.currentRotation += planet.rotationSpeed * time.deltaTime;
     });
 
-    // Update orbital buildings
-    for (let y = 0; y < GRID_HEIGHT; y++) {
-      for (let x = 0; x < GRID_WIDTH; x++) {
-        const cell = grid[y][x];
-        if (cell && cell.parentPlanet && cell.orbitalAngle !== undefined && cell.orbitalDistance !== undefined) {
-          const planet = planets.find(
-            (p) => p.centerX === cell.parentPlanet!.centerX && p.centerY === cell.parentPlanet!.centerY
-          );
-
-          if (planet) {
-            const currentAngle = cell.orbitalAngle + planet.currentRotation;
-            const planetWorldPos = gridToWorld(planet.centerX, planet.centerY);
-            const newX = planetWorldPos.x + Math.cos(currentAngle) * cell.orbitalDistance;
-            const newY = planetWorldPos.y + Math.sin(currentAngle) * cell.orbitalDistance;
-
-            cell.sprite.position.set(newX, newY);
-            cell.sprite.rotation = currentAngle + Math.PI / 2;
-          }
-        }
-      }
-    }
-
     // Update stars
     starArray.forEach((star) => {
       star.graphics.y += star.speed;
