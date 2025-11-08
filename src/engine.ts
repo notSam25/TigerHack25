@@ -1,6 +1,7 @@
 import { Application, Container, Graphics, Ticker, Text, Sprite, Texture } from "pixi.js";
 import { Renderer } from "./renderer";
 import { GameSprite, GridCell, Grid, PlanetSprite, ExplosionSprite, createSprite } from "./sprite";
+import { SoundManager } from "./soundManager";
 import {
   MIN_ZOOM,
   MAX_ZOOM,
@@ -71,7 +72,11 @@ export class Engine {
   // Active explosions
   private explosions: GameSprite[] = [];
 
+  // Sound manager
+  private soundManager: SoundManager;
+
   constructor(app: Application) {
+    this.soundManager = new SoundManager();
     this.app = app;
     this.TILE_SIZE = CONST_TILE_SIZE;
     
@@ -238,6 +243,7 @@ export class Engine {
       e.stopPropagation();
       this.isDraggingFromToolbar = true;
       this.selectedTexture = bunnyTexture;
+      this.soundManager.play('pickup');
 
       this.previewSprite = new Sprite(bunnyTexture);
       this.previewSprite.anchor.set(0.5);
@@ -251,6 +257,7 @@ export class Engine {
       e.stopPropagation();
       this.isDraggingFromToolbar = true;
       this.selectedTexture = turretTexture;
+      this.soundManager.play('pickup');
 
       this.previewSprite = new Sprite(turretTexture);
       this.previewSprite.anchor.set(0.5);
@@ -472,6 +479,9 @@ export class Engine {
   }
 
   start() {
+    // Start background music
+    this.soundManager.playBackgroundMusic();
+
     // wheel for zoom
     window.addEventListener(
       "wheel",
@@ -520,6 +530,7 @@ export class Engine {
                 this.draggedSpriteGridPos = { x: centerX, y: centerY };
                 this.previewSprite = sprite.getDisplay() as Sprite;
                 this.previewSprite.alpha = 0.7;
+                this.soundManager.play('pickup');
               }
             } else {
               // Start panning
@@ -562,8 +573,10 @@ export class Engine {
             (sprite.getDisplay() as Sprite).scale.set(spriteScale);
 
             this.placeSprite(gridX, gridY, sprite);
+            this.soundManager.play('placeBuilding');
             console.log(`Placed ${isTurret ? 'turret' : 'building'} at grid (${gridX}, ${gridY})`);
           } else {
+            this.soundManager.play('invalidPlacement');
             console.log("Cannot place - cells occupied or out of bounds");
           }
         }
@@ -576,6 +589,7 @@ export class Engine {
         if (this.isOverTrash) {
           console.log(`Deleted sprite from (${this.draggedSpriteGridPos.x}, ${this.draggedSpriteGridPos.y})`);
           this.removeSprite(this.draggedSpriteGridPos.x, this.draggedSpriteGridPos.y);
+          this.soundManager.play('trash');
           this.previewSprite = null;
         } else {
           const { gridX, gridY } = this.screenToGrid(e.clientX, e.clientY);
@@ -586,6 +600,7 @@ export class Engine {
             } else {
               const success = this.moveSprite(this.draggedSpriteGridPos.x, this.draggedSpriteGridPos.y, gridX, gridY);
               if (!success) {
+                this.soundManager.play('invalidPlacement');
                 const worldPos = this.gridToWorld(this.draggedSpriteGridPos.x, this.draggedSpriteGridPos.y);
                 this.previewSprite.position.set(worldPos.x, worldPos.y);
               }
@@ -938,6 +953,7 @@ export class Engine {
     // Create explosion at the sprite's position
     const worldPos = this.gridToWorld(gridX, gridY);
     this.createExplosion(worldPos.x, worldPos.y, Math.max(radius / 3, 1));
+    this.soundManager.play('explosion');
 
     // Remove from planets array if it's a planet
     if (sprite instanceof PlanetSprite) {
