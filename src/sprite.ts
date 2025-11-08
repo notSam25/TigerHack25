@@ -53,6 +53,19 @@ export class BunnySprite extends GameSprite {
   }
 }
 
+export class TurretSprite extends GameSprite {
+  constructor(texture: Texture) {
+    const sprite = new Sprite(texture);
+    sprite.anchor.set(0.5);
+    super(sprite, "Turret", "Building", 200, 200, 1, false);
+  }
+
+  update(_delta: number) {
+    // Turrets don't animate (yet - could rotate to track targets)
+    void _delta;
+  }
+}
+
 export class AsteroidSprite extends GameSprite {
   private rotationSpeed: number;
 
@@ -68,30 +81,78 @@ export class AsteroidSprite extends GameSprite {
   }
 }
 
+export class BlackHoleSprite extends GameSprite {
+  private rotationSpeed: number;
+
+  constructor(texture: Texture, rotationSpeed: number) {
+    const sprite = new Sprite(texture);
+    sprite.anchor.set(0.5);
+    super(sprite, "Black Hole", "???", 0, 0, 24, true);
+    this.rotationSpeed = rotationSpeed;
+  }
+
+  update(delta: number) {
+    (this.display as Sprite).rotation += this.rotationSpeed * delta;
+  }
+}
+
 export class PlanetSprite extends GameSprite {
   private rotationSpeed: number;
+  private shield: Sprite | null;
   centerX: number;
   centerY: number;
-  currentRotation: number = 0;
+  currentRotation: number;
 
   constructor(
     texture: Texture,
     name: string,
     rotationSpeed: number,
     centerX: number,
-    centerY: number
+    centerY: number,
+    shieldTexture?: Texture,
+    initialRotation: number = 0
   ) {
-    const sprite = new Sprite(texture);
-    sprite.anchor.set(0.5);
-    super(sprite, name, "Planet", 1000, 1000, 15, true);
+    // Use a container to hold both planet and shield
+    const container = new Container();
+    const planetSprite = new Sprite(texture);
+    planetSprite.anchor.set(0.5);
+    planetSprite.rotation = initialRotation; // Set initial rotation
+    container.addChild(planetSprite);
+    
+    let shield: Sprite | null = null;
+    
+    // Add shield if provided
+    if (shieldTexture) {
+      shield = new Sprite(shieldTexture);
+      shield.anchor.set(0.5);
+      shield.alpha = 0.3; // Make it transparent (30% opacity)
+      // Scale shield larger to encompass structures between planet and shield
+      const shieldScale = (texture.width * 1.4) / shieldTexture.width;
+      shield.scale.set(shieldScale);
+      shield.rotation = -initialRotation * 0.5; // Set initial shield rotation (opposite direction)
+      container.addChild(shield);
+    }
+    
+    super(container, name, "Planet", 1000, 1000, 14, true);
+    
+    this.shield = shield;
     this.rotationSpeed = rotationSpeed;
     this.centerX = centerX;
     this.centerY = centerY;
+    this.currentRotation = initialRotation;
   }
 
   update(delta: number) {
-    (this.display as Sprite).rotation += this.rotationSpeed * delta;
+    // Rotate the planet sprite inside the container
+    const container = this.display as Container;
+    const planetSprite = container.children[0] as Sprite;
+    planetSprite.rotation += this.rotationSpeed * delta;
     this.currentRotation += this.rotationSpeed * delta;
+    
+    // Optionally rotate shield slowly for effect
+    if (this.shield) {
+      this.shield.rotation -= this.rotationSpeed * delta * 0.5;
+    }
   }
 }
 
@@ -179,7 +240,7 @@ export class GenericSprite extends GameSprite {
   }
 }
 
-export type SpriteKind = "bunny" | "asteroid" | "planet" | "generic";
+export type SpriteKind = "bunny" | "turret" | "asteroid" | "blackhole" | "planet" | "generic";
 
 /**
  * Factory to create sprites of different kinds.
@@ -192,6 +253,8 @@ export function createSprite(
     name?: string;
     centerX?: number;
     centerY?: number;
+    shieldTexture?: Texture;
+    initialRotation?: number;
   }
 ): GameSprite {
   if (kind === "bunny") {
@@ -199,6 +262,13 @@ export function createSprite(
       throw new Error('createSprite("bunny") requires options.texture');
     }
     return new BunnySprite(options.texture);
+  }
+
+  if (kind === "turret") {
+    if (!options || !options.texture) {
+      throw new Error('createSprite("turret") requires options.texture');
+    }
+    return new TurretSprite(options.texture);
   }
 
   if (kind === "asteroid") {
@@ -211,6 +281,16 @@ export function createSprite(
     );
   }
 
+  if (kind === "blackhole") {
+    if (!options || !options.texture) {
+      throw new Error('createSprite("blackhole") requires options.texture');
+    }
+    return new BlackHoleSprite(
+      options.texture,
+      options.rotationSpeed || 0.002
+    );
+  }
+
   if (kind === "planet") {
     if (!options || !options.texture) {
       throw new Error('createSprite("planet") requires options.texture');
@@ -220,7 +300,9 @@ export function createSprite(
       options.name || "Planet",
       options.rotationSpeed || 0.0005,
       options.centerX || 0,
-      options.centerY || 0
+      options.centerY || 0,
+      options.shieldTexture,
+      options.initialRotation || 0
     );
   }
 

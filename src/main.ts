@@ -15,16 +15,19 @@ import { Engine } from "./engine";
   const asteroidTexture = await Assets.load("/assets/asteroid.png");
   const planetTexture = await Assets.load("/assets/planet.jpg");
   const bunnyTexture = await Assets.load("/assets/bunny.png");
+  const turretTexture = await Assets.load("/assets/turret.png");
+  const shieldTexture = await Assets.load("/assets/shield.png");
+  const blackHoleTexture = await Assets.load("/assets/black hole.png");
   const explosionTexture = await Assets.load("/assets/explosion.png");
 
   // Create game engine
   const engine = new Engine(app);
 
-  // Generate world (asteroids and planets)
-  engine.generateWorld(asteroidTexture, planetTexture);
+  // Generate world (asteroids, black holes, and planets with shields)
+  engine.generateWorld(asteroidTexture, planetTexture, shieldTexture, blackHoleTexture);
 
   // Initialize UI
-  engine.initToolbar(bunnyTexture);
+  engine.initToolbar(bunnyTexture, turretTexture);
   engine.initTooltip();
   engine.setExplosionTexture(explosionTexture);
 

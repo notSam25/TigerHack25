@@ -9,15 +9,19 @@ export const ZOOM_SPEED = 0.1;
 // World generation settings
 export const NUM_STARS = 200;
 export const NUM_ASTEROIDS = 50;
+export const NUM_BLACK_HOLES = 3;
 
 // Sprite sizes (in tiles)
 export const BUNNY_TILES = 2;
+export const TURRET_TILES = 3;
 export const ASTEROID_TILES = 12;
+export const BLACK_HOLE_TILES = 48; // 4x asteroid size
 export const PLANET_TILES = 28;
 
 // Collision radii (in tiles)
 export const ASTEROID_RADIUS = 6;
-export const PLANET_RADIUS = 15;
+export const BLACK_HOLE_RADIUS = 24; // 4x asteroid radius
+export const PLANET_RADIUS = 14;
 export const PLANET_DETECTION_DISTANCE = 14;
 
 // Rotation speed ranges

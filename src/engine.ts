@@ -6,14 +6,18 @@ import {
   MAX_ZOOM,
   ZOOM_SPEED,
   NUM_ASTEROIDS,
+  NUM_BLACK_HOLES,
   ASTEROID_RADIUS,
+  BLACK_HOLE_RADIUS,
   PLANET_RADIUS,
   ASTEROID_ROTATION_MIN,
   ASTEROID_ROTATION_MAX,
   PLANET_ROTATION_MIN,
   PLANET_ROTATION_MAX,
   ASTEROID_TILES,
+  BLACK_HOLE_TILES,
   PLANET_TILES,
+  TURRET_TILES,
   TILE_SIZE as CONST_TILE_SIZE,
 } from "./constants";
 
@@ -53,6 +57,7 @@ export class Engine {
   // Toolbar elements
   private trashCan!: Graphics;
   private bunnyTexture: Texture | null = null;
+  private turretTexture: Texture | null = null;
   private explosionTexture: Texture | null = null;
   private gridToggleButton!: Graphics;
   private gridToggleText!: Text;
@@ -128,18 +133,19 @@ export class Engine {
     this.renderer.hideGrid(); // Start with grid hidden
   }
 
-  // Initialize toolbar with bunny sprite
-  initToolbar(bunnyTexture: Texture) {
+  // Initialize toolbar with bunny and turret sprites
+  initToolbar(bunnyTexture: Texture, turretTexture: Texture) {
     this.bunnyTexture = bunnyTexture;
-    const BUNNY_TILES = 1; // Import this if needed from constants
+    this.turretTexture = turretTexture;
+    const BUNNY_TILES = 1;
 
     this.toolbar = new Container();
     this.toolbar.position.set(10, this.app.screen.height - 100);
     this.uiContainer.addChild(this.toolbar);
 
-    // Toolbar background
+    // Toolbar background (wider to fit both sprites and trash)
     const toolbarBg = new Graphics();
-    toolbarBg.rect(0, 0, 200, 90);
+    toolbarBg.rect(0, 0, 310, 90);
     toolbarBg.fill({ color: 0x222222, alpha: 0.9 });
     toolbarBg.stroke({ width: 2, color: 0x666666 });
     this.toolbar.addChild(toolbarBg);
@@ -154,12 +160,22 @@ export class Engine {
     toolbarBunny.cursor = "pointer";
     this.toolbar.addChild(toolbarBunny);
 
+    // Turret sprite button (bigger, not rotated)
+    const turretScale = ((this.TILE_SIZE * TURRET_TILES) / Math.max(turretTexture.width, turretTexture.height));
+    const toolbarTurret = new Sprite(turretTexture);
+    toolbarTurret.anchor.set(0.5);
+    toolbarTurret.position.set(125, 45);
+    toolbarTurret.scale.set(turretScale * 0.8);
+    toolbarTurret.eventMode = "static";
+    toolbarTurret.cursor = "pointer";
+    this.toolbar.addChild(toolbarTurret);
+
     // Trash can
     this.trashCan = new Graphics();
     this.trashCan.rect(0, 0, 80, 80);
     this.trashCan.fill({ color: 0x880000, alpha: 0.8 });
     this.trashCan.stroke({ width: 2, color: 0xff0000 });
-    this.trashCan.position.set(110, 5);
+    this.trashCan.position.set(220, 5);
     this.toolbar.addChild(this.trashCan);
 
     // Trash icon (X)
@@ -169,7 +185,7 @@ export class Engine {
     trashIcon.moveTo(60, 20);
     trashIcon.lineTo(20, 60);
     trashIcon.stroke({ width: 4, color: 0xffffff });
-    trashIcon.position.set(110, 5);
+    trashIcon.position.set(220, 5);
     this.toolbar.addChild(trashIcon);
 
     // Grid toggle button (top-right corner)
@@ -227,12 +243,26 @@ export class Engine {
       this.previewSprite.scale.set(bunnyScale);
       this.world.addChild(this.previewSprite);
     });
+
+    // Turret click handler
+    toolbarTurret.on("pointerdown", (e: any) => {
+      e.stopPropagation();
+      this.isDraggingFromToolbar = true;
+      this.selectedTexture = turretTexture;
+
+      this.previewSprite = new Sprite(turretTexture);
+      this.previewSprite.anchor.set(0.5);
+      this.previewSprite.alpha = 0.7;
+      this.previewSprite.scale.set(turretScale);
+      this.world.addChild(this.previewSprite);
+    });
   }
 
   // Generate asteroids and planets
-  generateWorld(asteroidTexture: Texture, planetTexture: Texture) {
+  generateWorld(asteroidTexture: Texture, planetTexture: Texture, shieldTexture?: Texture, blackHoleTexture?: Texture) {
     // Calculate scales based on TILE_SIZE
     const asteroidScale = (this.TILE_SIZE * ASTEROID_TILES) / asteroidTexture.width;
+    const blackHoleScale = blackHoleTexture ? (this.TILE_SIZE * BLACK_HOLE_TILES) / blackHoleTexture.width : 1;
     const planetScale = (this.TILE_SIZE * PLANET_TILES) / planetTexture.width;
 
     // Generate asteroids
@@ -263,15 +293,43 @@ export class Engine {
     }
     console.log(`Placed ${placed} asteroids out of ${NUM_ASTEROIDS} attempts`);
 
-    // Generate planets with shared rotation speed for fairness
+    // Generate black holes as large obstacles in the middle zone between planets
+    if (blackHoleTexture) {
+      let blackHolesPlaced = 0;
+      for (let attempt = 0; attempt < 100 && blackHolesPlaced < NUM_BLACK_HOLES; attempt++) {
+        // Bias black holes to spawn in the middle 60% of the map (20-80% from left edge)
+        const x = Math.floor(this.GRID_WIDTH * 0.2 + Math.random() * (this.GRID_WIDTH * 0.6));
+        const y = Math.floor(Math.random() * this.GRID_HEIGHT);
+
+        if (this.canPlaceInRadius(x, y, BLACK_HOLE_RADIUS)) {
+          const rotationSpeed = Math.random() * 0.003 + 0.001; // Slow rotation
+          const blackHole = createSprite("blackhole", {
+            texture: blackHoleTexture,
+            rotationSpeed,
+          });
+          (blackHole.getDisplay() as Sprite).scale.set(blackHoleScale);
+
+          this.placeSprite(x, y, blackHole);
+          blackHolesPlaced++;
+        }
+      }
+      console.log(`Placed ${blackHolesPlaced} black holes out of ${NUM_BLACK_HOLES} attempts`);
+    }
+
+    // Generate planets with shared rotation speed for fairness, but different starting rotations
     const sharedRotationSpeed =
       (Math.random() * (PLANET_ROTATION_MAX - PLANET_ROTATION_MIN) +
         PLANET_ROTATION_MIN) *
       (Math.random() < 0.5 ? 1 : -1);
+    
+    // Random starting rotations for visual variety
+    const planet1StartRotation = Math.random() * Math.PI * 2;
+    const planet2StartRotation = Math.random() * Math.PI * 2;
 
-    // Planet 1 (left third)
+    // Planet 1 (left side - close to edge, not in leftmost third)
+    // Place in the range of 10-25% from left edge
     for (let attempt = 0; attempt < 100; attempt++) {
-      const x = Math.floor(Math.random() * (this.GRID_WIDTH / 3));
+      const x = Math.floor(this.GRID_WIDTH * 0.1 + Math.random() * (this.GRID_WIDTH * 0.15));
       const y = Math.floor(Math.random() * this.GRID_HEIGHT);
 
       if (this.canPlaceInRadius(x, y, PLANET_RADIUS)) {
@@ -281,17 +339,20 @@ export class Engine {
           name: "Player 1 Base",
           centerX: x,
           centerY: y,
+          shieldTexture: shieldTexture,
+          initialRotation: planet1StartRotation,
         });
-        (planet1.getDisplay() as Sprite).scale.set(planetScale);
+        (planet1.getDisplay() as Container).scale.set(planetScale);
 
         this.placeSprite(x, y, planet1);
         break;
       }
     }
 
-    // Planet 2 (right third)
+    // Planet 2 (right side - close to edge, mirror of planet 1)
+    // Place in the range of 75-90% from left edge
     for (let attempt = 0; attempt < 100; attempt++) {
-      const x = Math.floor((this.GRID_WIDTH * 2) / 3 + Math.random() * (this.GRID_WIDTH / 3));
+      const x = Math.floor(this.GRID_WIDTH * 0.75 + Math.random() * (this.GRID_WIDTH * 0.15));
       const y = Math.floor(Math.random() * this.GRID_HEIGHT);
 
       if (this.canPlaceInRadius(x, y, PLANET_RADIUS)) {
@@ -301,8 +362,10 @@ export class Engine {
           name: "Player 2 Base",
           centerX: x,
           centerY: y,
+          shieldTexture: shieldTexture,
+          initialRotation: planet2StartRotation,
         });
-        (planet2.getDisplay() as Sprite).scale.set(planetScale);
+        (planet2.getDisplay() as Container).scale.set(planetScale);
 
         this.placeSprite(x, y, planet2);
         break;
@@ -460,18 +523,22 @@ export class Engine {
         const { gridX, gridY } = this.screenToGrid(e.clientX, e.clientY);
 
         if (gridX >= 0 && gridX < this.GRID_WIDTH && gridY >= 0 && gridY < this.GRID_HEIGHT) {
-          if (this.canPlaceInRadius(gridX, gridY, 0)) {
-            // Place a bunny building
-            const bunnySprite = createSprite("bunny", {
+          // Determine sprite type based on texture
+          const isTurret = this.selectedTexture === this.turretTexture;
+          const radius = isTurret ? 1 : 0;
+          
+          if (this.canPlaceInRadius(gridX, gridY, radius)) {
+            // Create the appropriate sprite
+            const sprite = createSprite(isTurret ? "turret" : "bunny", {
               texture: this.selectedTexture,
-              name: "Building",
+              name: isTurret ? "Turret" : "Building",
             });
-            const BUNNY_TILES = 1;
-            const bunnyScale = ((this.TILE_SIZE * BUNNY_TILES * 0.8) / Math.max(this.selectedTexture.width, this.selectedTexture.height));
-            (bunnySprite.getDisplay() as Sprite).scale.set(bunnyScale);
+            const SPRITE_TILES = isTurret ? TURRET_TILES : 1;
+            const spriteScale = ((this.TILE_SIZE * SPRITE_TILES) / Math.max(this.selectedTexture.width, this.selectedTexture.height));
+            (sprite.getDisplay() as Sprite).scale.set(spriteScale);
 
-            this.placeSprite(gridX, gridY, bunnySprite);
-            console.log(`Placed building at grid (${gridX}, ${gridY})`);
+            this.placeSprite(gridX, gridY, sprite);
+            console.log(`Placed ${isTurret ? 'turret' : 'building'} at grid (${gridX}, ${gridY})`);
           } else {
             console.log("Cannot place - cells occupied or out of bounds");
           }
@@ -537,7 +604,7 @@ export class Engine {
         const { gridX, gridY } = this.screenToGrid(e.clientX, e.clientY);
 
         const trashBounds = {
-          x: this.toolbar.x + 110,
+          x: this.toolbar.x + 220,
           y: this.toolbar.y + 5,
           width: 80,
           height: 80
@@ -555,13 +622,13 @@ export class Engine {
           this.trashCan.rect(0, 0, 80, 80);
           this.trashCan.fill({ color: 0xff0000, alpha: 0.9 });
           this.trashCan.stroke({ width: 3, color: 0xffff00 });
-          this.trashCan.position.set(110, 5);
+          this.trashCan.position.set(220, 5);
         } else {
           this.trashCan.clear();
           this.trashCan.rect(0, 0, 80, 80);
           this.trashCan.fill({ color: 0x880000, alpha: 0.8 });
           this.trashCan.stroke({ width: 2, color: 0xff0000 });
-          this.trashCan.position.set(110, 5);
+          this.trashCan.position.set(220, 5);
 
           if (gridX >= 0 && gridX < this.GRID_WIDTH && gridY >= 0 && gridY < this.GRID_HEIGHT) {
             const worldPos = this.gridToWorld(gridX, gridY);
