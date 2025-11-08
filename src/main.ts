@@ -1,4 +1,4 @@
-import { Application, Assets, Sprite, Graphics, Container } from "pixi.js";
+import { Application, Assets, Sprite, Graphics, Container, Text } from "pixi.js";
 import type { GridCell, Star, RotatingObject, Planet, ObjectType } from "./types";
 import {
   TILE_SIZE,
@@ -177,6 +177,45 @@ import { generateAsteroids, generateBasePlanets } from "./worldGen";
   const highlightGraphic = new Graphics();
   world.addChild(highlightGraphic);
 
+  // Create tooltip
+  const tooltip = new Container();
+  tooltip.visible = false;
+  uiContainer.addChild(tooltip);
+
+  const tooltipBg = new Graphics();
+  tooltip.addChild(tooltipBg);
+
+  const tooltipText = new Text("", {
+    fontFamily: "Arial",
+    fontSize: 14,
+    fill: 0xffffff,
+    align: "left"
+  });
+  tooltipText.position.set(8, 8);
+  tooltip.addChild(tooltipText);
+
+  function showTooltip(x: number, y: number, name: string, health: number, type: string) {
+    tooltipText.text = `${name}\nType: ${type}\nHealth: ${health}`;
+    
+    // Redraw background based on text size
+    tooltipBg.clear();
+    const padding = 8;
+    const width = tooltipText.width + padding * 2;
+    const height = tooltipText.height + padding * 2;
+    
+    tooltipBg.rect(0, 0, width, height);
+    tooltipBg.fill({ color: 0x000000, alpha: 0.8 });
+    tooltipBg.stroke({ width: 1, color: 0xffffff, alpha: 0.5 });
+    
+    // Position tooltip offset from cursor
+    tooltip.position.set(x + 15, y + 15);
+    tooltip.visible = true;
+  }
+
+  function hideTooltip() {
+    tooltip.visible = false;
+  }
+
   // Toolbar bunny click
   toolbarBunny.on("pointerdown", (e) => {
     e.stopPropagation();
@@ -236,9 +275,30 @@ import { generateAsteroids, generateBasePlanets } from "./worldGen";
           }
 
           if (selectedObjectType.type === "bunny") {
-            placeBuildingOnPlanet(grid, world, planets, gridX, gridY, newSprite, selectedObjectType.type, selectedObjectType.radius);
+            placeBuildingOnPlanet(
+              grid, 
+              world, 
+              planets, 
+              gridX, 
+              gridY, 
+              newSprite, 
+              selectedObjectType.type, 
+              selectedObjectType.radius,
+              "Building",
+              100,
+              100
+            );
           } else {
-            placeSprite(grid, world, rotatingObjects, gridX, gridY, newSprite, selectedObjectType.type, selectedObjectType.radius);
+            placeSprite(
+              grid, 
+              world, 
+              rotatingObjects, 
+              gridX, 
+              gridY, 
+              newSprite, 
+              selectedObjectType.type, 
+              selectedObjectType.radius
+            );
           }
           console.log(`Placed ${selectedObjectType.type} at grid (${gridX}, ${gridY})`);
         } else {
@@ -381,6 +441,26 @@ import { generateAsteroids, generateBasePlanets } from "./worldGen";
     } else if (isPanning) {
       world.x = e.clientX - panStart.x;
       world.y = e.clientY - panStart.y;
+      hideTooltip();
+    } else {
+      // Show tooltip when hovering over sprites (not dragging anything)
+      const { gridX, gridY } = screenToGrid(e.clientX, e.clientY, world.x, world.y, zoom);
+      
+      if (gridX >= 0 && gridX < GRID_WIDTH && gridY >= 0 && gridY < GRID_HEIGHT) {
+        const cell = grid[gridY][gridX];
+        if (cell !== null) {
+          // Use stored data or defaults
+          const name = cell.name || cell.type;
+          const health = cell.health || 100;
+          const type = cell.type;
+          
+          showTooltip(e.clientX, e.clientY, name, health, type);
+        } else {
+          hideTooltip();
+        }
+      } else {
+        hideTooltip();
+      }
     }
   });
 

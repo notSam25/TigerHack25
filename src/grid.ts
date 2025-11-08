@@ -14,7 +14,10 @@ export function placeSprite(
   type: string,
   radius: number = 0,
   immutable: boolean = false,
-  rotationSpeed?: number
+  rotationSpeed?: number,
+  name?: string,
+  health?: number,
+  maxHealth?: number
 ): boolean {
   // Check if position is valid and all cells in radius are empty
   if (!canPlaceInRadius(grid, gridX, gridY, radius)) {
@@ -23,7 +26,18 @@ export function placeSprite(
   }
 
   // Create cell data
-  const cellData = { type, sprite, radius, centerX: gridX, centerY: gridY, immutable, rotationSpeed };
+  const cellData = { 
+    type, 
+    sprite, 
+    radius, 
+    centerX: gridX, 
+    centerY: gridY, 
+    immutable, 
+    rotationSpeed,
+    name,
+    health,
+    maxHealth
+  };
 
   // If has rotation, add to rotating objects
   if (rotationSpeed !== undefined) {
@@ -53,7 +67,10 @@ export function placeBuildingOnPlanet(
   gridY: number,
   sprite: Sprite,
   type: string,
-  radius: number = 0
+  radius: number = 0,
+  name?: string,
+  health?: number,
+  maxHealth?: number
 ): boolean {
   // Check if position is valid and all cells in radius are empty
   if (!canPlaceInRadius(grid, gridX, gridY, radius)) {
@@ -102,7 +119,10 @@ export function placeBuildingOnPlanet(
     immutable: false,
     parentPlanet: parentPlanetData,
     orbitalAngle,
-    orbitalDistance
+    orbitalDistance,
+    name,
+    health,
+    maxHealth
   };
 
   // Occupy all cells in radius

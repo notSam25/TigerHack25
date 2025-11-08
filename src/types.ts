@@ -8,6 +8,10 @@ export type GridCell = null | {
   centerY: number;
   immutable?: boolean;
   rotationSpeed?: number;
+  // Game stats
+  name?: string;
+  health?: number;
+  maxHealth?: number;
   // Orbital data for buildings on planets
   parentPlanet?: { centerX: number; centerY: number; rotationSpeed: number };
   orbitalAngle?: number; // Angle from planet center

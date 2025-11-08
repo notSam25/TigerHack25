@@ -45,7 +45,21 @@ export function generateAsteroids(
       const rotationSpeed = (Math.random() * (ASTEROID_ROTATION_MAX - ASTEROID_ROTATION_MIN) + ASTEROID_ROTATION_MIN) * 
                            (Math.random() < 0.5 ? 1 : -1);
 
-      placeSprite(grid, world, rotatingObjects, x, y, asteroid, "asteroid", ASTEROID_RADIUS, true, rotationSpeed);
+      placeSprite(
+        grid, 
+        world, 
+        rotatingObjects, 
+        x, 
+        y, 
+        asteroid, 
+        "asteroid", 
+        ASTEROID_RADIUS, 
+        true, 
+        rotationSpeed,
+        "Asteroid",
+        500,
+        500
+      );
       placed++;
     }
   }
@@ -78,7 +92,21 @@ export function generateBasePlanets(
       planet1.anchor.set(0.5);
       planet1.scale.set(basePlanetScale);
 
-      placeSprite(grid, world, rotatingObjects, x, y, planet1, "base_planet_1", PLANET_RADIUS, true, sharedRotationSpeed);
+      placeSprite(
+        grid, 
+        world, 
+        rotatingObjects, 
+        x, 
+        y, 
+        planet1, 
+        "base_planet_1", 
+        PLANET_RADIUS, 
+        true, 
+        sharedRotationSpeed,
+        "Player 1 Base",
+        1000,
+        1000
+      );
       console.log(`Placed Base Planet 1 at (${x}, ${y}) with rotation speed ${sharedRotationSpeed.toFixed(5)}`);
 
       // Register planet for orbital tracking
@@ -105,7 +133,21 @@ export function generateBasePlanets(
       planet2.anchor.set(0.5);
       planet2.scale.set(basePlanetScale);
 
-      placeSprite(grid, world, rotatingObjects, x, y, planet2, "base_planet_2", PLANET_RADIUS, true, sharedRotationSpeed);
+      placeSprite(
+        grid, 
+        world, 
+        rotatingObjects, 
+        x, 
+        y, 
+        planet2, 
+        "base_planet_2", 
+        PLANET_RADIUS, 
+        true, 
+        sharedRotationSpeed,
+        "Player 2 Base",
+        1000,
+        1000
+      );
       console.log(`Placed Base Planet 2 at (${x}, ${y}) with rotation speed ${sharedRotationSpeed.toFixed(5)}`);
 
       // Register planet for orbital tracking
