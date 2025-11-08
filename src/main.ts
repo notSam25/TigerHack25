@@ -41,13 +41,19 @@ import { Application, Assets, Sprite, Graphics, Container, Text } from "pixi.js"
 
   const TILE_SIZE = 64;
   
-  // Calculate grid dimensions based on screen size
-  // Add extra buffer for panning beyond screen edges
-  const BUFFER_MULTIPLIER = 2;
-  const GRID_WIDTH = Math.ceil((app.screen.width * BUFFER_MULTIPLIER) / TILE_SIZE);
-  const GRID_HEIGHT = Math.ceil((app.screen.height * BUFFER_MULTIPLIER) / TILE_SIZE);
+  // Zoom settings - grid will be sized for max zoom out
+  const MIN_ZOOM = 0.2; // Max zoom out - shows entire grid
+  const MAX_ZOOM = 2;   // Max zoom in
+  const ZOOM_SPEED = 0.1;
+  
+  // Calculate grid dimensions based on max zoom out
+  // Grid should fit the screen at MIN_ZOOM
+  const GRID_WIDTH = Math.ceil((app.screen.width / MIN_ZOOM) / TILE_SIZE);
+  const GRID_HEIGHT = Math.ceil((app.screen.height / MIN_ZOOM) / TILE_SIZE);
+  
+  console.log(`Grid size: ${GRID_WIDTH} x ${GRID_HEIGHT} tiles (${GRID_WIDTH * TILE_SIZE} x ${GRID_HEIGHT * TILE_SIZE} pixels)`);
 
-  type GridCell = null | {type: string; sprite: Sprite};
+  type GridCell = null | {type: string; sprite: Sprite; radius: number; centerX: number; centerY: number};
   const grid: GridCell[][] = [];
 
   // Initialize grid
@@ -60,40 +66,150 @@ import { Application, Assets, Sprite, Graphics, Container, Text } from "pixi.js"
 
   // Load the bunny texture
   const texture = await Assets.load("/assets/bunny.png");
-  const bunny = new Sprite(texture);
-  bunny.anchor.set(0.5);
+  const planetTexture = await Assets.load("/assets/planet.jpg");
+  const asteroidTexture = await Assets.load("/assets/asteroid.png");
   
-  // Position bunny in center of grid
-  const centerGridX = Math.floor(GRID_WIDTH / 2);
-  const centerGridY = Math.floor(GRID_HEIGHT / 2);
-  bunny.position.set(
-    centerGridX * TILE_SIZE + TILE_SIZE / 2,
-    centerGridY * TILE_SIZE + TILE_SIZE / 2
-  );
+  // Log image dimensions for analysis
+  console.log("Image dimensions:");
+  console.log("Bunny:", texture.width, "x", texture.height);
+  console.log("Planet:", planetTexture.width, "x", planetTexture.height);
+  console.log("Asteroid:", asteroidTexture.width, "x", asteroidTexture.height);
+  console.log("Current TILE_SIZE:", TILE_SIZE);
   
-  world.addChild(bunny);
+  // Calculate optimal scales based on image size and desired grid coverage
+  // Bunny: 26x37 -> scale to fit 1 tile (64px)
+  const bunnyScale = (TILE_SIZE * 0.8) / Math.max(texture.width, texture.height); // ~1.4
+  
+  // Asteroid: 360x360 -> should cover ~3 tiles diameter (192px) for radius 1
+  const asteroidTargetSize = TILE_SIZE * 3; // 192px
+  const asteroidScale = asteroidTargetSize / asteroidTexture.width; // ~0.53
+  
+  // Planet: 640x640 -> should cover ~5 tiles diameter (320px) for radius 2
+  const planetTargetSize = TILE_SIZE * 5; // 320px
+  const planetScale = planetTargetSize / planetTexture.width; // ~0.5
+  
+  console.log("Calculated scales:");
+  console.log("Bunny scale:", bunnyScale.toFixed(2));
+  console.log("Asteroid scale:", asteroidScale.toFixed(2));
+  console.log("Planet scale:", planetScale.toFixed(2));
+  
+  // Generate random asteroids across the grid
+  function generateAsteroids(count: number) {
+    let placed = 0;
+    let attempts = 0;
+    const maxAttempts = count * 10; // Prevent infinite loop
+    
+    while (placed < count && attempts < maxAttempts) {
+      attempts++;
+      
+      // Random position in grid
+      const x = Math.floor(Math.random() * GRID_WIDTH);
+      const y = Math.floor(Math.random() * GRID_HEIGHT);
+      
+      // Try to place asteroid
+      if (canPlaceInRadius(x, y, 1)) {
+        const asteroid = new Sprite(asteroidTexture);
+        asteroid.anchor.set(0.5);
+        asteroid.scale.set(asteroidScale);
+        placeSprite(x, y, asteroid, "asteroid", 1);
+        placed++;
+      }
+    }
+    
+    console.log(`Placed ${placed} asteroids (${attempts} attempts)`);
+  }
+  
+  // Generate two base planets for players
+  function generateBasePlanets() {
+    // Increase planet radius for bases to make them larger
+    const basePlanetRadius = 3; // Larger than normal planets
+    const basePlanetScale = (TILE_SIZE * 7) / planetTexture.width; // Cover 7 tiles diameter
+    
+    // Place first planet in left third of grid
+    let planet1Placed = false;
+    for (let attempt = 0; attempt < 100; attempt++) {
+      const x = Math.floor(Math.random() * (GRID_WIDTH / 3));
+      const y = Math.floor(Math.random() * GRID_HEIGHT);
+      
+      if (canPlaceInRadius(x, y, basePlanetRadius)) {
+        const planet1 = new Sprite(planetTexture);
+        planet1.anchor.set(0.5);
+        planet1.scale.set(basePlanetScale);
+        placeSprite(x, y, planet1, "base_planet_1", basePlanetRadius);
+        console.log(`Placed Base Planet 1 at (${x}, ${y})`);
+        planet1Placed = true;
+        break;
+      }
+    }
+    
+    // Place second planet in right third of grid
+    let planet2Placed = false;
+    for (let attempt = 0; attempt < 100; attempt++) {
+      const x = Math.floor((GRID_WIDTH * 2/3) + Math.random() * (GRID_WIDTH / 3));
+      const y = Math.floor(Math.random() * GRID_HEIGHT);
+      
+      if (canPlaceInRadius(x, y, basePlanetRadius)) {
+        const planet2 = new Sprite(planetTexture);
+        planet2.anchor.set(0.5);
+        planet2.scale.set(basePlanetScale);
+        placeSprite(x, y, planet2, "base_planet_2", basePlanetRadius);
+        console.log(`Placed Base Planet 2 at (${x}, ${y})`);
+        planet2Placed = true;
+        break;
+      }
+    }
+    
+    if (!planet1Placed || !planet2Placed) {
+      console.warn("Failed to place both base planets!");
+    }
+  }
+  
+  // Helper function to get all cells within radius
+  function getCellsInRadius(centerX: number, centerY: number, radius: number): {x: number; y: number}[] {
+    const cells: {x: number; y: number}[] = [];
+    for (let dy = -radius; dy <= radius; dy++) {
+      for (let dx = -radius; dx <= radius; dx++) {
+        // Use circular distance check
+        if (dx * dx + dy * dy <= radius * radius) {
+          cells.push({ x: centerX + dx, y: centerY + dy });
+        }
+      }
+    }
+    return cells;
+  }
 
-  // Track bunny in grid
-  grid[centerGridY][centerGridX] = {
-    type: "bunny",
-    sprite: bunny
-  };
+  // Function to check if all cells in radius are available
+  function canPlaceInRadius(centerX: number, centerY: number, radius: number): boolean {
+    const cells = getCellsInRadius(centerX, centerY, radius);
+    for (const cell of cells) {
+      if (cell.x < 0 || cell.x >= GRID_WIDTH || cell.y < 0 || cell.y >= GRID_HEIGHT) {
+        return false;
+      }
+      if (grid[cell.y][cell.x] !== null) {
+        return false;
+      }
+    }
+    return true;
+  }
 
-  // Function to place sprite in grid
-  function placeSprite(gridX: number, gridY: number, sprite: Sprite, type: string): boolean {
-    // Check if position is valid and cell is empty
-    if (gridX < 0 || gridX >= GRID_WIDTH || gridY < 0 || gridY >= GRID_HEIGHT) {
-      console.log("Position out of bounds");
+  // Function to place sprite in grid with radius
+  function placeSprite(gridX: number, gridY: number, sprite: Sprite, type: string, radius: number = 0): boolean {
+    // Check if position is valid and all cells in radius are empty
+    if (!canPlaceInRadius(gridX, gridY, radius)) {
+      console.log("Position out of bounds or cells occupied");
       return false;
     }
     
-    if (grid[gridY][gridX] !== null) {
-      console.log("Cell already occupied");
-      return false;
+    // Create cell data
+    const cellData = { type, sprite, radius, centerX: gridX, centerY: gridY };
+    
+    // Occupy all cells in radius
+    const cells = getCellsInRadius(gridX, gridY, radius);
+    for (const cell of cells) {
+      grid[cell.y][cell.x] = cellData;
     }
     
-    // Place sprite
-    grid[gridY][gridX] = { type, sprite };
+    // Position sprite at center
     const worldPos = gridToWorld(gridX, gridY);
     sprite.position.set(worldPos.x, worldPos.y);
     world.addChild(sprite);
@@ -115,17 +231,55 @@ import { Application, Assets, Sprite, Graphics, Container, Text } from "pixi.js"
       return false;
     }
     
-    if (grid[toY][toX] !== null) {
-      console.log("Destination cell occupied");
+    const radius = fromCell.radius;
+    const sprite = fromCell.sprite;
+    
+    // Clear old cells first (so we don't conflict with ourselves)
+    const oldCells = getCellsInRadius(fromX, fromY, radius);
+    for (const cell of oldCells) {
+      if (cell.x >= 0 && cell.x < GRID_WIDTH && cell.y >= 0 && cell.y < GRID_HEIGHT) {
+        grid[cell.y][cell.x] = null;
+      }
+    }
+    
+    // Now check if destination is available
+    if (!canPlaceInRadius(toX, toY, radius)) {
+      console.log("Destination cells occupied or out of bounds");
+      // Restore old cells since we can't move
+      const cellData = { 
+        type: fromCell.type, 
+        sprite: sprite, 
+        radius: radius,
+        centerX: fromX,
+        centerY: fromY
+      };
+      for (const cell of oldCells) {
+        if (cell.x >= 0 && cell.x < GRID_WIDTH && cell.y >= 0 && cell.y < GRID_HEIGHT) {
+          grid[cell.y][cell.x] = cellData;
+        }
+      }
       return false;
     }
     
-    // Move sprite
-    grid[toY][toX] = fromCell;
-    grid[fromY][fromX] = null;
+    // Update cell data with new center
+    const cellData = { 
+      type: fromCell.type, 
+      sprite: sprite, 
+      radius: radius,
+      centerX: toX,
+      centerY: toY
+    };
+    
+    // Occupy new cells
+    const newCells = getCellsInRadius(toX, toY, radius);
+    for (const cell of newCells) {
+      if (cell.x >= 0 && cell.x < GRID_WIDTH && cell.y >= 0 && cell.y < GRID_HEIGHT) {
+        grid[cell.y][cell.x] = cellData;
+      }
+    }
     
     const worldPos = gridToWorld(toX, toY);
-    fromCell.sprite.position.set(worldPos.x, worldPos.y);
+    sprite.position.set(worldPos.x, worldPos.y);
     
     return true;
   }
@@ -141,8 +295,14 @@ import { Application, Assets, Sprite, Graphics, Container, Text } from "pixi.js"
       return false;
     }
     
+    // Remove sprite from world
     world.removeChild(cell.sprite);
-    grid[gridY][gridX] = null;
+    
+    // Clear all cells in radius
+    const cells = getCellsInRadius(cell.centerX, cell.centerY, cell.radius);
+    for (const cellPos of cells) {
+      grid[cellPos.y][cellPos.x] = null;
+    }
     
     return true;
   }
@@ -151,12 +311,13 @@ import { Application, Assets, Sprite, Graphics, Container, Text } from "pixi.js"
   const gridGraphics = new Graphics();
   world.addChild(gridGraphics);
   
+  // Generate the world
+  generateBasePlanets();
+  generateAsteroids(50); // Place 50 asteroids
+  
   //Zoom functionality
-  let zoom = 1;
-  let targetZoom = 1;
-  const MIN_ZOOM = 0.2;
-  const MAX_ZOOM = 3;
-  const ZOOM_SPEED = 0.1;
+  let zoom = MIN_ZOOM; // Start at max zoom out to see entire grid
+  let targetZoom = MIN_ZOOM;
   
   // Function to redraw grid with appropriate line width for zoom level
   function drawGrid() {
@@ -203,26 +364,47 @@ import { Application, Assets, Sprite, Graphics, Container, Text } from "pixi.js"
 
   // Toolbar background
   const toolbarBg = new Graphics();
-  toolbarBg.rect(0, 0, 200, 90);
+  toolbarBg.rect(0, 0, 380, 90);
   toolbarBg.fill({ color: 0x222222, alpha: 0.9 });
   toolbarBg.stroke({ width: 2, color: 0x666666 });
   toolbar.addChild(toolbarBg);
+
+  // Object type tracking
+  let selectedObjectType: { texture: any; type: string; radius: number } | null = null;
 
   // Create bunny button in toolbar
   const toolbarBunny = new Sprite(texture);
   toolbarBunny.anchor.set(0.5);
   toolbarBunny.position.set(45, 45);
-  toolbarBunny.scale.set(0.5);
+  toolbarBunny.scale.set(bunnyScale * 0.8); // Slightly smaller in toolbar
   toolbarBunny.eventMode = 'static';
   toolbarBunny.cursor = 'pointer';
   toolbar.addChild(toolbarBunny);
+
+  // Create asteroid button (radius 1)
+  const toolbarAsteroid = new Sprite(asteroidTexture);
+  toolbarAsteroid.anchor.set(0.5);
+  toolbarAsteroid.position.set(135, 45);
+  toolbarAsteroid.scale.set(asteroidScale * 0.15); // Small preview in toolbar
+  toolbarAsteroid.eventMode = 'static';
+  toolbarAsteroid.cursor = 'pointer';
+  toolbar.addChild(toolbarAsteroid);
+
+  // Create planet button (radius 2)
+  const toolbarPlanet = new Sprite(planetTexture);
+  toolbarPlanet.anchor.set(0.5);
+  toolbarPlanet.position.set(225, 45);
+  toolbarPlanet.scale.set(planetScale * 0.08); // Small preview in toolbar
+  toolbarPlanet.eventMode = 'static';
+  toolbarPlanet.cursor = 'pointer';
+  toolbar.addChild(toolbarPlanet);
 
   // Create trash can
   const trashCan = new Graphics();
   trashCan.rect(0, 0, 80, 80);
   trashCan.fill({ color: 0x880000, alpha: 0.8 });
   trashCan.stroke({ width: 2, color: 0xff0000 });
-  trashCan.position.set(110, 5);
+  trashCan.position.set(300, 5);
   toolbar.addChild(trashCan);
   
   // Trash can icon (simple X)
@@ -232,7 +414,7 @@ import { Application, Assets, Sprite, Graphics, Container, Text } from "pixi.js"
   trashIcon.moveTo(60, 20);
   trashIcon.lineTo(20, 60);
   trashIcon.stroke({ width: 4, color: 0xffffff });
-  trashIcon.position.set(110, 5);
+  trashIcon.position.set(300, 5);
   toolbar.addChild(trashIcon);
 
   // Dragging state
@@ -250,11 +432,41 @@ import { Application, Assets, Sprite, Graphics, Container, Text } from "pixi.js"
   toolbarBunny.on('pointerdown', (e) => {
     e.stopPropagation();
     isDraggingFromToolbar = true;
+    selectedObjectType = { texture, type: "bunny", radius: 0 };
     
     // Create preview sprite
     previewSprite = new Sprite(texture);
     previewSprite.anchor.set(0.5);
     previewSprite.alpha = 0.7;
+    previewSprite.scale.set(bunnyScale);
+    world.addChild(previewSprite);
+  });
+
+  // Mouse down on toolbar asteroid - start drag
+  toolbarAsteroid.on('pointerdown', (e) => {
+    e.stopPropagation();
+    isDraggingFromToolbar = true;
+    selectedObjectType = { texture: asteroidTexture, type: "asteroid", radius: 1 };
+    
+    // Create preview sprite
+    previewSprite = new Sprite(asteroidTexture);
+    previewSprite.anchor.set(0.5);
+    previewSprite.alpha = 0.7;
+    previewSprite.scale.set(asteroidScale);
+    world.addChild(previewSprite);
+  });
+
+  // Mouse down on toolbar planet - start drag
+  toolbarPlanet.on('pointerdown', (e) => {
+    e.stopPropagation();
+    isDraggingFromToolbar = true;
+    selectedObjectType = { texture: planetTexture, type: "planet", radius: 2 };
+    
+    // Create preview sprite
+    previewSprite = new Sprite(planetTexture);
+    previewSprite.anchor.set(0.5);
+    previewSprite.alpha = 0.7;
+    previewSprite.scale.set(planetScale);
     world.addChild(previewSprite);
   });
 
@@ -267,14 +479,14 @@ import { Application, Assets, Sprite, Graphics, Container, Text } from "pixi.js"
       if (gridX >= 0 && gridX < GRID_WIDTH && gridY >= 0 && gridY < GRID_HEIGHT) {
         const cell = grid[gridY][gridX];
         if (cell !== null) {
-          // Start dragging this sprite
+          // Start dragging this sprite - use the CENTER position, not clicked position
           isDraggingSprite = true;
-          draggedSpriteGridPos = { x: gridX, y: gridY };
+          draggedSpriteGridPos = { x: cell.centerX, y: cell.centerY };
           previewSprite = cell.sprite;
           previewSprite.alpha = 0.7;
           
           // Don't remove from grid yet, wait for drop
-          console.log(`Picked up ${cell.type} from (${gridX}, ${gridY})`);
+          console.log(`Picked up ${cell.type} from center (${cell.centerX}, ${cell.centerY})`);
           return;
         }
       }
@@ -287,19 +499,29 @@ import { Application, Assets, Sprite, Graphics, Container, Text } from "pixi.js"
   });
 
   app.canvas.addEventListener("mouseup", (e) => {
-    if (isDraggingFromToolbar && previewSprite) {
+    if (isDraggingFromToolbar && previewSprite && selectedObjectType) {
       // Try to place the sprite
       const { gridX, gridY } = screenToGrid(e.clientX, e.clientY);
       
       if (gridX >= 0 && gridX < GRID_WIDTH && gridY >= 0 && gridY < GRID_HEIGHT) {
-        if (grid[gridY][gridX] === null) {
-          // Place the sprite
-          const newBunny = new Sprite(texture);
-          newBunny.anchor.set(0.5);
-          placeSprite(gridX, gridY, newBunny, "bunny");
-          console.log(`Placed bunny at grid (${gridX}, ${gridY})`);
+        if (canPlaceInRadius(gridX, gridY, selectedObjectType.radius)) {
+          // Place the sprite with appropriate scale
+          const newSprite = new Sprite(selectedObjectType.texture);
+          newSprite.anchor.set(0.5);
+          
+          // Set scale based on type
+          if (selectedObjectType.type === "bunny") {
+            newSprite.scale.set(bunnyScale);
+          } else if (selectedObjectType.type === "asteroid") {
+            newSprite.scale.set(asteroidScale);
+          } else if (selectedObjectType.type === "planet") {
+            newSprite.scale.set(planetScale);
+          }
+          
+          placeSprite(gridX, gridY, newSprite, selectedObjectType.type, selectedObjectType.radius);
+          console.log(`Placed ${selectedObjectType.type} at grid (${gridX}, ${gridY}) with radius ${selectedObjectType.radius}`);
         } else {
-          console.log("Cell already occupied");
+          console.log("Cannot place - cells occupied or out of bounds");
         }
       }
       
@@ -307,6 +529,7 @@ import { Application, Assets, Sprite, Graphics, Container, Text } from "pixi.js"
       world.removeChild(previewSprite);
       previewSprite = null;
       highlightGraphic.clear();
+      selectedObjectType = null;
     } else if (isDraggingSprite && draggedSpriteGridPos && previewSprite) {
       // Check if over trash
       if (isOverTrash) {
@@ -320,20 +543,26 @@ import { Application, Assets, Sprite, Graphics, Container, Text } from "pixi.js"
         
         if (gridX >= 0 && gridX < GRID_WIDTH && gridY >= 0 && gridY < GRID_HEIGHT) {
           if (gridX === draggedSpriteGridPos.x && gridY === draggedSpriteGridPos.y) {
-            // Dropped in same spot, just reset
-            previewSprite.alpha = 1;
-          } else if (grid[gridY][gridX] === null) {
-            // Move to new position
-            moveSprite(draggedSpriteGridPos.x, draggedSpriteGridPos.y, gridX, gridY);
-            console.log(`Moved sprite from (${draggedSpriteGridPos.x}, ${draggedSpriteGridPos.y}) to (${gridX}, ${gridY})`);
+            // Dropped in same spot, just reset alpha
             previewSprite.alpha = 1;
           } else {
-            // Can't move there, return to original position
-            console.log("Can't move there - cell occupied");
+            // Try to move to new position
+            const success = moveSprite(draggedSpriteGridPos.x, draggedSpriteGridPos.y, gridX, gridY);
+            if (success) {
+              console.log(`Moved sprite from (${draggedSpriteGridPos.x}, ${draggedSpriteGridPos.y}) to (${gridX}, ${gridY})`);
+            } else {
+              // Can't move there, return to original position
+              console.log("Can't move there - returning to original position");
+              const worldPos = gridToWorld(draggedSpriteGridPos.x, draggedSpriteGridPos.y);
+              previewSprite.position.set(worldPos.x, worldPos.y);
+            }
             previewSprite.alpha = 1;
           }
         } else {
           // Outside grid, return to original position
+          console.log("Outside grid - returning to original position");
+          const worldPos = gridToWorld(draggedSpriteGridPos.x, draggedSpriteGridPos.y);
+          previewSprite.position.set(worldPos.x, worldPos.y);
           previewSprite.alpha = 1;
         }
       }
@@ -368,7 +597,7 @@ import { Application, Assets, Sprite, Graphics, Container, Text } from "pixi.js"
   });
 
   app.canvas.addEventListener("mousemove", (e) => {
-    if (isDraggingFromToolbar && previewSprite) {
+    if (isDraggingFromToolbar && previewSprite && selectedObjectType) {
       // Update preview position
       const { gridX, gridY } = screenToGrid(e.clientX, e.clientY);
       
@@ -376,17 +605,23 @@ import { Application, Assets, Sprite, Graphics, Container, Text } from "pixi.js"
         const worldPos = gridToWorld(gridX, gridY);
         previewSprite.position.set(worldPos.x, worldPos.y);
         
-        // Draw highlight
+        // Draw highlight for all cells in radius
         highlightGraphic.clear();
-        const isOccupied = grid[gridY][gridX] !== null;
-        const color = isOccupied ? 0xff0000 : 0x00ff00;
-        highlightGraphic.rect(
-          gridX * TILE_SIZE,
-          gridY * TILE_SIZE,
-          TILE_SIZE,
-          TILE_SIZE
-        );
-        highlightGraphic.fill({ color, alpha: 0.3 });
+        const canPlace = canPlaceInRadius(gridX, gridY, selectedObjectType.radius);
+        const color = canPlace ? 0x00ff00 : 0xff0000;
+        
+        const cells = getCellsInRadius(gridX, gridY, selectedObjectType.radius);
+        for (const cell of cells) {
+          if (cell.x >= 0 && cell.x < GRID_WIDTH && cell.y >= 0 && cell.y < GRID_HEIGHT) {
+            highlightGraphic.rect(
+              cell.x * TILE_SIZE,
+              cell.y * TILE_SIZE,
+              TILE_SIZE,
+              TILE_SIZE
+            );
+            highlightGraphic.fill({ color, alpha: 0.3 });
+          }
+        }
       }
     } else if (isDraggingSprite && previewSprite && draggedSpriteGridPos) {
       // Update dragged sprite position
@@ -394,7 +629,7 @@ import { Application, Assets, Sprite, Graphics, Container, Text } from "pixi.js"
       
       // Check if over trash can
       const trashBounds = {
-        x: toolbar.x + 110,
+        x: toolbar.x + 300,
         y: toolbar.y + 5,
         width: 80,
         height: 80
@@ -414,31 +649,40 @@ import { Application, Assets, Sprite, Graphics, Container, Text } from "pixi.js"
         trashCan.rect(0, 0, 80, 80);
         trashCan.fill({ color: 0xff0000, alpha: 0.9 });
         trashCan.stroke({ width: 3, color: 0xffff00 });
-        trashCan.position.set(110, 5);
+        trashCan.position.set(300, 5);
       } else {
         // Reset trash can
         trashCan.clear();
         trashCan.rect(0, 0, 80, 80);
         trashCan.fill({ color: 0x880000, alpha: 0.8 });
         trashCan.stroke({ width: 2, color: 0xff0000 });
-        trashCan.position.set(110, 5);
+        trashCan.position.set(300, 5);
         
         // Show grid highlight
         if (gridX >= 0 && gridX < GRID_WIDTH && gridY >= 0 && gridY < GRID_HEIGHT) {
           const worldPos = gridToWorld(gridX, gridY);
           previewSprite.position.set(worldPos.x, worldPos.y);
           
-          highlightGraphic.clear();
-          const isOccupied = grid[gridY][gridX] !== null && 
-                            (gridX !== draggedSpriteGridPos.x || gridY !== draggedSpriteGridPos.y);
-          const color = isOccupied ? 0xff0000 : 0x00ff00;
-          highlightGraphic.rect(
-            gridX * TILE_SIZE,
-            gridY * TILE_SIZE,
-            TILE_SIZE,
-            TILE_SIZE
-          );
-          highlightGraphic.fill({ color, alpha: 0.3 });
+          const cell = grid[draggedSpriteGridPos.y][draggedSpriteGridPos.x];
+          if (cell) {
+            const radius = cell.radius;
+            highlightGraphic.clear();
+            const canPlace = canPlaceInRadius(gridX, gridY, radius);
+            const color = canPlace ? 0x00ff00 : 0xff0000;
+            
+            const cells = getCellsInRadius(gridX, gridY, radius);
+            for (const cellPos of cells) {
+              if (cellPos.x >= 0 && cellPos.x < GRID_WIDTH && cellPos.y >= 0 && cellPos.y < GRID_HEIGHT) {
+                highlightGraphic.rect(
+                  cellPos.x * TILE_SIZE,
+                  cellPos.y * TILE_SIZE,
+                  TILE_SIZE,
+                  TILE_SIZE
+                );
+                highlightGraphic.fill({ color, alpha: 0.3 });
+              }
+            }
+          }
         }
       }
     } else if (isPanning) {
@@ -481,9 +725,6 @@ import { Application, Assets, Sprite, Graphics, Container, Text } from "pixi.js"
       drawGrid();
     }
 
-    //Rotate bunny
-    bunny.rotation += 0.1 * time.deltaTime;
-
     //Update the stars
     starArray.forEach((star) => {
       star.graphics.y += star.speed;
@@ -499,14 +740,13 @@ import { Application, Assets, Sprite, Graphics, Container, Text } from "pixi.js"
   //Window resize
   window.addEventListener("resize", () => {
     app.renderer.resize(window.innerWidth, window.innerHeight);
-    // Keep bunny at same grid position, just recenter view
-    world.x = app.screen.width / 2 - bunny.x * zoom;
-    world.y = app.screen.height / 2 - bunny.y * zoom;
     // Update toolbar position
     toolbar.position.set(10, app.screen.height - 100);
   });
 
-  // Center the world view on the bunny at startup
-  world.x = app.screen.width / 2 - bunny.x * zoom;
-  world.y = app.screen.height / 2 - bunny.y * zoom;
+  // Center the world view on the grid center at startup
+  const gridCenterX = (GRID_WIDTH * TILE_SIZE) / 2;
+  const gridCenterY = (GRID_HEIGHT * TILE_SIZE) / 2;
+  world.x = app.screen.width / 2 - gridCenterX * zoom;
+  world.y = app.screen.height / 2 - gridCenterY * zoom;
 })();
