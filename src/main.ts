@@ -75,29 +75,38 @@ import { Application, Assets, Sprite, Graphics, Container } from "pixi.js";
 
   // Draw grid lines for visualization
   const gridGraphics = new Graphics();
-  
-  // Draw vertical lines
-  for (let x = 0; x <= GRID_WIDTH; x++) {
-    gridGraphics.moveTo(x * TILE_SIZE, 0);
-    gridGraphics.lineTo(x * TILE_SIZE, GRID_HEIGHT * TILE_SIZE);
-  }
-  
-  // Draw horizontal lines
-  for (let y = 0; y <= GRID_HEIGHT; y++) {
-    gridGraphics.moveTo(0, y * TILE_SIZE);
-    gridGraphics.lineTo(GRID_WIDTH * TILE_SIZE, y * TILE_SIZE);
-  }
-  
-  gridGraphics.stroke({ width: 1, color: 0x333333, alpha: 0.5 });
   world.addChild(gridGraphics);
-  console.log("Grid lines added to world");
-
+  
   //Zoom functionality
   let zoom = 1;
   let targetZoom = 1;
   const MIN_ZOOM = 0.2;
   const MAX_ZOOM = 3;
   const ZOOM_SPEED = 0.1;
+  
+  // Function to redraw grid with appropriate line width for zoom level
+  function drawGrid() {
+    gridGraphics.clear();
+    
+    // Adjust line width inversely with zoom so it stays visually consistent
+    const lineWidth = 1 / zoom;
+    
+    // Draw vertical lines
+    for (let x = 0; x <= GRID_WIDTH; x++) {
+      gridGraphics.moveTo(x * TILE_SIZE, 0);
+      gridGraphics.lineTo(x * TILE_SIZE, GRID_HEIGHT * TILE_SIZE);
+    }
+    
+    // Draw horizontal lines
+    for (let y = 0; y <= GRID_HEIGHT; y++) {
+      gridGraphics.moveTo(0, y * TILE_SIZE);
+      gridGraphics.lineTo(GRID_WIDTH * TILE_SIZE, y * TILE_SIZE);
+    }
+    
+    gridGraphics.stroke({ width: lineWidth, color: 0x333333, alpha: 0.5 });
+  }
+  
+  drawGrid();
 
   window.addEventListener("wheel", (event) => {
     event.preventDefault();
@@ -162,6 +171,11 @@ import { Application, Assets, Sprite, Graphics, Container } from "pixi.js";
     world.x = centerX - ((centerX - world.x) * (zoom / prevZoom));
     world.y = centerY - ((centerY - world.y) * (zoom / prevZoom)); 
     world.scale.set(zoom);
+    
+    // Redraw grid when zoom changes
+    if (prevZoom !== zoom) {
+      drawGrid();
+    }
 
     //Rotate bunny
     bunny.rotation += 0.1 * time.deltaTime;
