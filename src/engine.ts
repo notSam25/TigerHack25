@@ -56,6 +56,11 @@ export class Engine {
   // Toolbar elements
   private trashCan!: Graphics;
   private bunnyTexture: Texture | null = null;
+  private gridToggleButton!: Graphics;
+  private gridToggleText!: Text;
+  
+  // Grid visibility toggle
+  private showGrid = true;
   
   // Planets for tracking
   private planets: PlanetSprite[] = [];
@@ -164,6 +169,49 @@ export class Engine {
     trashIcon.stroke({ width: 4, color: 0xffffff });
     trashIcon.position.set(110, 5);
     this.toolbar.addChild(trashIcon);
+
+    // Grid toggle button (top-right corner)
+    this.gridToggleButton = new Graphics();
+    this.gridToggleButton.rect(0, 0, 120, 40);
+    this.gridToggleButton.fill({ color: 0x00aa00, alpha: 0.8 });
+    this.gridToggleButton.stroke({ width: 2, color: 0x00ff00 });
+    this.gridToggleButton.position.set(this.app.screen.width - 130, 10);
+    this.gridToggleButton.eventMode = "static";
+    this.gridToggleButton.cursor = "pointer";
+    this.uiContainer.addChild(this.gridToggleButton);
+
+    this.gridToggleText = new Text({
+      text: "Grid: ON",
+      style: { fontSize: 14, fill: 0xffffff, fontWeight: "bold" },
+    });
+    this.gridToggleText.anchor.set(0.5);
+    this.gridToggleText.position.set(60, 20);
+    this.gridToggleButton.addChild(this.gridToggleText);
+
+    // Grid toggle click handler
+    this.gridToggleButton.on("pointerdown", (e: any) => {
+      e.stopPropagation();
+      this.showGrid = !this.showGrid;
+      this.gridToggleText.text = this.showGrid ? "Grid: ON" : "Grid: OFF";
+      
+      // Update button color
+      this.gridToggleButton.clear();
+      this.gridToggleButton.rect(0, 0, 120, 40);
+      if (this.showGrid) {
+        this.gridToggleButton.fill({ color: 0x00aa00, alpha: 0.8 });
+        this.gridToggleButton.stroke({ width: 2, color: 0x00ff00 });
+      } else {
+        this.gridToggleButton.fill({ color: 0xaa0000, alpha: 0.8 });
+        this.gridToggleButton.stroke({ width: 2, color: 0xff0000 });
+      }
+      
+      // Update grid visibility
+      if (this.showGrid) {
+        this.renderer.setZoom(this.zoom);
+      } else {
+        this.renderer.hideGrid();
+      }
+    });
 
     // Bunny click handler
     toolbarBunny.on("pointerdown", (e: any) => {
@@ -312,6 +360,8 @@ export class Engine {
   // Draw orange highlights for occupied cells (development)
   drawOccupiedCells() {
     this.highlightGraphic.clear();
+    
+    if (!this.showGrid) return; // Only draw when grid is visible
     
     for (let y = 0; y < this.GRID_HEIGHT; y++) {
       for (let x = 0; x < this.GRID_WIDTH; x++) {
@@ -609,6 +659,11 @@ export class Engine {
       // Update toolbar position
       if (this.toolbar) {
         this.toolbar.position.set(10, this.app.screen.height - 100);
+      }
+      
+      // Update grid toggle button position
+      if (this.gridToggleButton) {
+        this.gridToggleButton.position.set(this.app.screen.width - 130, 10);
       }
     }
 

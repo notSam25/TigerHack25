@@ -44,4 +44,8 @@ export class Renderer {
 
     g.stroke({ width: lineWidth, color: 0x333333, alpha: 0.5 });
   }
+
+  hideGrid() {
+    this.gridGraphics.clear();
+  }
 }
