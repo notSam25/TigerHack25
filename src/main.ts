@@ -53,8 +53,11 @@ import { Application, Assets, Sprite, Graphics, Container, Text } from "pixi.js"
   
   console.log(`Grid size: ${GRID_WIDTH} x ${GRID_HEIGHT} tiles (${GRID_WIDTH * TILE_SIZE} x ${GRID_HEIGHT * TILE_SIZE} pixels)`);
 
-  type GridCell = null | {type: string; sprite: Sprite; radius: number; centerX: number; centerY: number};
+  type GridCell = null | {type: string; sprite: Sprite; radius: number; centerX: number; centerY: number; immutable?: boolean; rotationSpeed?: number};
   const grid: GridCell[][] = [];
+  
+  // Keep track of rotating objects
+  const rotatingObjects: {sprite: Sprite; speed: number}[] = [];
 
   // Initialize grid
   for (let y = 0; y < GRID_HEIGHT; y++) {
@@ -106,12 +109,16 @@ import { Application, Assets, Sprite, Graphics, Container, Text } from "pixi.js"
       const x = Math.floor(Math.random() * GRID_WIDTH);
       const y = Math.floor(Math.random() * GRID_HEIGHT);
       
-      // Try to place asteroid
+      // Try to place asteroid (immutable) with random rotation
       if (canPlaceInRadius(x, y, 1)) {
         const asteroid = new Sprite(asteroidTexture);
         asteroid.anchor.set(0.5);
         asteroid.scale.set(asteroidScale);
-        placeSprite(x, y, asteroid, "asteroid", 1);
+        
+        // Random rotation speed for asteroids (0.002 to 0.01 radians per frame)
+        const rotationSpeed = (Math.random() * 0.008 + 0.002) * (Math.random() < 0.5 ? 1 : -1);
+        
+        placeSprite(x, y, asteroid, "asteroid", 1, true, rotationSpeed); // Mark as immutable with rotation
         placed++;
       }
     }
@@ -125,7 +132,7 @@ import { Application, Assets, Sprite, Graphics, Container, Text } from "pixi.js"
     const basePlanetRadius = 3; // Larger than normal planets
     const basePlanetScale = (TILE_SIZE * 7) / planetTexture.width; // Cover 7 tiles diameter
     
-    // Place first planet in left third of grid
+    // Place first planet in left third of grid (immutable) with slow rotation
     let planet1Placed = false;
     for (let attempt = 0; attempt < 100; attempt++) {
       const x = Math.floor(Math.random() * (GRID_WIDTH / 3));
@@ -135,14 +142,18 @@ import { Application, Assets, Sprite, Graphics, Container, Text } from "pixi.js"
         const planet1 = new Sprite(planetTexture);
         planet1.anchor.set(0.5);
         planet1.scale.set(basePlanetScale);
-        placeSprite(x, y, planet1, "base_planet_1", basePlanetRadius);
+        
+        // Very slow rotation for planets (0.0003 to 0.001 radians per frame)
+        const rotationSpeed = (Math.random() * 0.0007 + 0.0003) * (Math.random() < 0.5 ? 1 : -1);
+        
+        placeSprite(x, y, planet1, "base_planet_1", basePlanetRadius, true, rotationSpeed); // Mark as immutable with rotation
         console.log(`Placed Base Planet 1 at (${x}, ${y})`);
         planet1Placed = true;
         break;
       }
     }
     
-    // Place second planet in right third of grid
+    // Place second planet in right third of grid (immutable) with slow rotation
     let planet2Placed = false;
     for (let attempt = 0; attempt < 100; attempt++) {
       const x = Math.floor((GRID_WIDTH * 2/3) + Math.random() * (GRID_WIDTH / 3));
@@ -152,7 +163,11 @@ import { Application, Assets, Sprite, Graphics, Container, Text } from "pixi.js"
         const planet2 = new Sprite(planetTexture);
         planet2.anchor.set(0.5);
         planet2.scale.set(basePlanetScale);
-        placeSprite(x, y, planet2, "base_planet_2", basePlanetRadius);
+        
+        // Very slow rotation for planets (0.0003 to 0.001 radians per frame)
+        const rotationSpeed = (Math.random() * 0.0007 + 0.0003) * (Math.random() < 0.5 ? 1 : -1);
+        
+        placeSprite(x, y, planet2, "base_planet_2", basePlanetRadius, true, rotationSpeed); // Mark as immutable with rotation
         console.log(`Placed Base Planet 2 at (${x}, ${y})`);
         planet2Placed = true;
         break;
@@ -193,7 +208,7 @@ import { Application, Assets, Sprite, Graphics, Container, Text } from "pixi.js"
   }
 
   // Function to place sprite in grid with radius
-  function placeSprite(gridX: number, gridY: number, sprite: Sprite, type: string, radius: number = 0): boolean {
+  function placeSprite(gridX: number, gridY: number, sprite: Sprite, type: string, radius: number = 0, immutable: boolean = false, rotationSpeed?: number): boolean {
     // Check if position is valid and all cells in radius are empty
     if (!canPlaceInRadius(gridX, gridY, radius)) {
       console.log("Position out of bounds or cells occupied");
@@ -201,7 +216,12 @@ import { Application, Assets, Sprite, Graphics, Container, Text } from "pixi.js"
     }
     
     // Create cell data
-    const cellData = { type, sprite, radius, centerX: gridX, centerY: gridY };
+    const cellData = { type, sprite, radius, centerX: gridX, centerY: gridY, immutable, rotationSpeed };
+    
+    // If has rotation, add to rotating objects
+    if (rotationSpeed !== undefined) {
+      rotatingObjects.push({ sprite, speed: rotationSpeed });
+    }
     
     // Occupy all cells in radius
     const cells = getCellsInRadius(gridX, gridY, radius);
@@ -362,9 +382,9 @@ import { Application, Assets, Sprite, Graphics, Container, Text } from "pixi.js"
   toolbar.position.set(10, app.screen.height - 100);
   uiContainer.addChild(toolbar);
 
-  // Toolbar background
+  // Toolbar background (smaller now - only bunny and trash)
   const toolbarBg = new Graphics();
-  toolbarBg.rect(0, 0, 380, 90);
+  toolbarBg.rect(0, 0, 200, 90);
   toolbarBg.fill({ color: 0x222222, alpha: 0.9 });
   toolbarBg.stroke({ width: 2, color: 0x666666 });
   toolbar.addChild(toolbarBg);
@@ -372,7 +392,7 @@ import { Application, Assets, Sprite, Graphics, Container, Text } from "pixi.js"
   // Object type tracking
   let selectedObjectType: { texture: any; type: string; radius: number } | null = null;
 
-  // Create bunny button in toolbar
+  // Create bunny button in toolbar (buildings that players can place)
   const toolbarBunny = new Sprite(texture);
   toolbarBunny.anchor.set(0.5);
   toolbarBunny.position.set(45, 45);
@@ -381,30 +401,12 @@ import { Application, Assets, Sprite, Graphics, Container, Text } from "pixi.js"
   toolbarBunny.cursor = 'pointer';
   toolbar.addChild(toolbarBunny);
 
-  // Create asteroid button (radius 1)
-  const toolbarAsteroid = new Sprite(asteroidTexture);
-  toolbarAsteroid.anchor.set(0.5);
-  toolbarAsteroid.position.set(135, 45);
-  toolbarAsteroid.scale.set(asteroidScale * 0.15); // Small preview in toolbar
-  toolbarAsteroid.eventMode = 'static';
-  toolbarAsteroid.cursor = 'pointer';
-  toolbar.addChild(toolbarAsteroid);
-
-  // Create planet button (radius 2)
-  const toolbarPlanet = new Sprite(planetTexture);
-  toolbarPlanet.anchor.set(0.5);
-  toolbarPlanet.position.set(225, 45);
-  toolbarPlanet.scale.set(planetScale * 0.08); // Small preview in toolbar
-  toolbarPlanet.eventMode = 'static';
-  toolbarPlanet.cursor = 'pointer';
-  toolbar.addChild(toolbarPlanet);
-
   // Create trash can
   const trashCan = new Graphics();
   trashCan.rect(0, 0, 80, 80);
   trashCan.fill({ color: 0x880000, alpha: 0.8 });
   trashCan.stroke({ width: 2, color: 0xff0000 });
-  trashCan.position.set(300, 5);
+  trashCan.position.set(110, 5);
   toolbar.addChild(trashCan);
   
   // Trash can icon (simple X)
@@ -414,7 +416,7 @@ import { Application, Assets, Sprite, Graphics, Container, Text } from "pixi.js"
   trashIcon.moveTo(60, 20);
   trashIcon.lineTo(20, 60);
   trashIcon.stroke({ width: 4, color: 0xffffff });
-  trashIcon.position.set(300, 5);
+  trashIcon.position.set(110, 5);
   toolbar.addChild(trashIcon);
 
   // Dragging state
@@ -442,34 +444,6 @@ import { Application, Assets, Sprite, Graphics, Container, Text } from "pixi.js"
     world.addChild(previewSprite);
   });
 
-  // Mouse down on toolbar asteroid - start drag
-  toolbarAsteroid.on('pointerdown', (e) => {
-    e.stopPropagation();
-    isDraggingFromToolbar = true;
-    selectedObjectType = { texture: asteroidTexture, type: "asteroid", radius: 1 };
-    
-    // Create preview sprite
-    previewSprite = new Sprite(asteroidTexture);
-    previewSprite.anchor.set(0.5);
-    previewSprite.alpha = 0.7;
-    previewSprite.scale.set(asteroidScale);
-    world.addChild(previewSprite);
-  });
-
-  // Mouse down on toolbar planet - start drag
-  toolbarPlanet.on('pointerdown', (e) => {
-    e.stopPropagation();
-    isDraggingFromToolbar = true;
-    selectedObjectType = { texture: planetTexture, type: "planet", radius: 2 };
-    
-    // Create preview sprite
-    previewSprite = new Sprite(planetTexture);
-    previewSprite.anchor.set(0.5);
-    previewSprite.alpha = 0.7;
-    previewSprite.scale.set(planetScale);
-    world.addChild(previewSprite);
-  });
-
   // Global mouse handlers
   app.canvas.addEventListener("mousedown", (e) => {
     if (!isDraggingFromToolbar) {
@@ -479,6 +453,16 @@ import { Application, Assets, Sprite, Graphics, Container, Text } from "pixi.js"
       if (gridX >= 0 && gridX < GRID_WIDTH && gridY >= 0 && gridY < GRID_HEIGHT) {
         const cell = grid[gridY][gridX];
         if (cell !== null) {
+          // Check if object is immutable (asteroids, planets)
+          if (cell.immutable) {
+            console.log(`Cannot move ${cell.type} - it's immutable`);
+            // Start panning instead
+            isPanning = true;
+            panStart.x = e.clientX - world.x;
+            panStart.y = e.clientY - world.y;
+            return;
+          }
+          
           // Start dragging this sprite - use the CENTER position, not clicked position
           isDraggingSprite = true;
           draggedSpriteGridPos = { x: cell.centerX, y: cell.centerY };
@@ -629,7 +613,7 @@ import { Application, Assets, Sprite, Graphics, Container, Text } from "pixi.js"
       
       // Check if over trash can
       const trashBounds = {
-        x: toolbar.x + 300,
+        x: toolbar.x + 110,
         y: toolbar.y + 5,
         width: 80,
         height: 80
@@ -649,14 +633,14 @@ import { Application, Assets, Sprite, Graphics, Container, Text } from "pixi.js"
         trashCan.rect(0, 0, 80, 80);
         trashCan.fill({ color: 0xff0000, alpha: 0.9 });
         trashCan.stroke({ width: 3, color: 0xffff00 });
-        trashCan.position.set(300, 5);
+        trashCan.position.set(110, 5);
       } else {
         // Reset trash can
         trashCan.clear();
         trashCan.rect(0, 0, 80, 80);
         trashCan.fill({ color: 0x880000, alpha: 0.8 });
         trashCan.stroke({ width: 2, color: 0xff0000 });
-        trashCan.position.set(300, 5);
+        trashCan.position.set(110, 5);
         
         // Show grid highlight
         if (gridX >= 0 && gridX < GRID_WIDTH && gridY >= 0 && gridY < GRID_HEIGHT) {
@@ -724,6 +708,11 @@ import { Application, Assets, Sprite, Graphics, Container, Text } from "pixi.js"
     if (prevZoom !== zoom) {
       drawGrid();
     }
+
+    // Rotate asteroids and planets
+    rotatingObjects.forEach((obj) => {
+      obj.sprite.rotation += obj.speed * time.deltaTime;
+    });
 
     //Update the stars
     starArray.forEach((star) => {
