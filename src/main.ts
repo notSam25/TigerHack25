@@ -16,9 +16,16 @@ import { Engine } from "./engine";
   const planetTexture = await Assets.load("/assets/planet.jpg");
   const bunnyTexture = await Assets.load("/assets/bunny.png");
   const turretTexture = await Assets.load("/assets/turret.png");
+  const laserTurretTexture = await Assets.load("/assets/laser turret.png");
   const shieldTexture = await Assets.load("/assets/shield.png");
   const blackHoleTexture = await Assets.load("/assets/black hole.png");
   const explosionTexture = await Assets.load("/assets/explosion.png");
+  const mineTexture = await Assets.load("/assets/mine.png");
+  const solarPanelTexture = await Assets.load("/assets/solar panel.png");
+  const missileTexture = await Assets.load("/assets/missile.png");
+  const laserTexture = await Assets.load("/assets/laser.png");
+  const oreIconTexture = await Assets.load("/assets/ore.png");
+  const energyIconTexture = await Assets.load("/assets/energy.png");
 
   // Create game engine
   const engine = new Engine(app);
@@ -27,7 +34,7 @@ import { Engine } from "./engine";
   engine.generateWorld(asteroidTexture, planetTexture, shieldTexture, blackHoleTexture);
 
   // Initialize UI
-  engine.initToolbar(bunnyTexture, turretTexture);
+  engine.initToolbar(bunnyTexture, turretTexture, laserTurretTexture, mineTexture, solarPanelTexture, missileTexture, laserTexture, oreIconTexture, energyIconTexture);
   engine.initTooltip();
   engine.setExplosionTexture(explosionTexture);
 

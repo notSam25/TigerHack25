@@ -13,7 +13,7 @@ export const NUM_BLACK_HOLES = 3;
 
 // Sprite sizes (in tiles)
 export const BUNNY_TILES = 2;
-export const TURRET_TILES = 3;
+export const TURRET_TILES = 2;
 export const ASTEROID_TILES = 12;
 export const BLACK_HOLE_TILES = 40; // Reduced proportionally
 export const PLANET_TILES = 50; // 1.25x black hole size

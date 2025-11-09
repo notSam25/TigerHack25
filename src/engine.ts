@@ -53,8 +53,12 @@ export class Engine {
   
   // Toolbar elements
   private trashCan!: Graphics;
+  private bunnyTexture: Texture | null = null; // Bunny texture for projectiles
   private turretTexture: Texture | null = null;
+  private gunTexture: Texture | null = null; // Gun texture for planet placement
   private explosionTexture: Texture | null = null;
+  private missileTexture: Texture | null = null; // Missile projectile for regular turrets
+  private laserTexture: Texture | null = null; // Laser projectile for laser turrets
   private gridToggleButton!: Graphics;
   private gridToggleText!: Text;
   
@@ -68,14 +72,63 @@ export class Engine {
   private launchSprite: GameSprite | null = null;
   private aimerGraphics!: Graphics;
   
+  // Delete button drag system
+  private isDraggingDeleteButton = false;
+  private deleteButtonOriginalPos = { x: 460, y: 5 };
+  private highlightedBuildingForDelete: GameSprite | null = null;
+  
   // Planets for tracking
   private planets: PlanetSprite[] = [];
   
   // Active explosions
   private explosions: GameSprite[] = [];
+  
+  // Active projectiles (not in grid yet)
+  private projectiles: GameSprite[] = [];
 
   // Sound manager
   private soundManager: SoundManager;
+
+  // Game state
+  private gameOver = false;
+  private winner: string | null = null;
+  private currentPlayer = 1; // 1 or 2
+  
+  // New resource systems
+  private playerOre = [0, 500, 500]; // Ore for building
+  private playerEnergy = [0, 100, 100]; // Current energy
+  private playerMaxEnergy = [0, 100, 100]; // Max energy capacity
+  private playerMineCount = [0, 0, 0]; // Number of mines owned by each player
+  private playerSolarCount = [0, 0, 0]; // Number of solar panels owned by each player
+  
+  // Base planets (for win/loss detection)
+  private player1Base: PlanetSprite | null = null;
+  private player2Base: PlanetSprite | null = null;
+  private shieldRadius: number = 0; // Shield radius for placement restriction
+  
+  // Game UI
+  private gameOverContainer: Container | null = null;
+  private gameInfoText: Text | null = null;
+  private oreText: Text | null = null;
+  private energyText: Text | null = null;
+  private energyBarBg: Graphics | null = null;
+  private energyBarFill: Graphics | null = null;
+  private player1HealthText: Text | null = null;
+  private player2HealthText: Text | null = null;
+  private player1HealthBarBg: Graphics | null = null;
+  private player1HealthBarFill: Graphics | null = null;
+  private player2HealthBarBg: Graphics | null = null;
+  private player2HealthBarFill: Graphics | null = null;
+  private endTurnButton: Graphics | null = null;
+  private endTurnText: Text | null = null;
+  
+  // Info panel
+  private infoPanelContainer: Container | null = null;
+  private infoPanelVisible: boolean = false;
+  
+  // New building textures
+  private mineTexture: Texture | null = null;
+  private solarPanelTexture: Texture | null = null;
 
   constructor(app: Application) {
     this.soundManager = new SoundManager();
@@ -144,18 +197,27 @@ export class Engine {
     this.renderer.hideGrid(); // Start with grid hidden
   }
 
-  // Initialize toolbar with bunny and turret sprites
-  initToolbar(bunnyTexture: Texture, turretTexture: Texture) {
+  // Initialize toolbar with bunny, turret, and laser turret sprites
+  initToolbar(bunnyTexture: Texture, turretTexture: Texture, laserTurretTexture: Texture, mineTexture: Texture, solarPanelTexture: Texture, missileTexture: Texture, laserTexture: Texture, oreIconTexture: Texture, energyIconTexture: Texture) {
+    // Initialize tooltip first
+    this.initTooltip();
+    
+    this.bunnyTexture = bunnyTexture;
     this.turretTexture = turretTexture;
+    this.gunTexture = laserTurretTexture; // Reuse gunTexture variable for laser turret
+    this.mineTexture = mineTexture;
+    this.solarPanelTexture = solarPanelTexture;
+    this.missileTexture = missileTexture;
+    this.laserTexture = laserTexture;
     const BUNNY_TILES = 1;
 
     this.toolbar = new Container();
     this.toolbar.position.set(10, this.app.screen.height - 100);
     this.uiContainer.addChild(this.toolbar);
 
-    // Toolbar background (wider to fit both sprites and trash)
+    // Toolbar background (wider to fit all sprites and trash)
     const toolbarBg = new Graphics();
-    toolbarBg.rect(0, 0, 310, 90);
+    toolbarBg.rect(0, 0, 550, 90);
     toolbarBg.fill({ color: 0x222222, alpha: 0.9 });
     toolbarBg.stroke({ width: 2, color: 0x666666 });
     this.toolbar.addChild(toolbarBg);
@@ -179,24 +241,55 @@ export class Engine {
     toolbarTurret.eventMode = "static";
     toolbarTurret.cursor = "pointer";
     this.toolbar.addChild(toolbarTurret);
+    
+    // Laser Turret sprite button
+    const laserTurretScale = ((this.TILE_SIZE * TURRET_TILES) / Math.max(laserTurretTexture.width, laserTurretTexture.height));
+    const toolbarLaserTurret = new Sprite(laserTurretTexture);
+    toolbarLaserTurret.anchor.set(0.5);
+    toolbarLaserTurret.position.set(205, 45);
+    toolbarLaserTurret.scale.set(laserTurretScale * 0.8);
+    toolbarLaserTurret.eventMode = "static";
+    toolbarLaserTurret.cursor = "pointer";
+    this.toolbar.addChild(toolbarLaserTurret);
+    
+    // Mine sprite button
+    const mineScale = ((this.TILE_SIZE * TURRET_TILES) / Math.max(mineTexture.width, mineTexture.height));
+    const toolbarMine = new Sprite(mineTexture);
+    toolbarMine.anchor.set(0.5);
+    toolbarMine.position.set(285, 45);
+    toolbarMine.scale.set(mineScale * 0.8);
+    toolbarMine.eventMode = "static";
+    toolbarMine.cursor = "pointer";
+    this.toolbar.addChild(toolbarMine);
+    
+    // Solar Panel sprite button
+    const solarScale = ((this.TILE_SIZE * TURRET_TILES) / Math.max(solarPanelTexture.width, solarPanelTexture.height));
+    const toolbarSolar = new Sprite(solarPanelTexture);
+    toolbarSolar.anchor.set(0.5);
+    toolbarSolar.position.set(365, 45);
+    toolbarSolar.scale.set(solarScale * 0.8);
+    toolbarSolar.eventMode = "static";
+    toolbarSolar.cursor = "pointer";
+    this.toolbar.addChild(toolbarSolar);
 
-    // Trash can
+    // Delete button (draggable X)
     this.trashCan = new Graphics();
     this.trashCan.rect(0, 0, 80, 80);
     this.trashCan.fill({ color: 0x880000, alpha: 0.8 });
     this.trashCan.stroke({ width: 2, color: 0xff0000 });
-    this.trashCan.position.set(220, 5);
+    this.trashCan.position.set(460, 5);
+    this.trashCan.eventMode = 'static';
+    this.trashCan.cursor = 'grab';
     this.toolbar.addChild(this.trashCan);
 
-    // Trash icon (X)
+    // X icon on delete button
     const trashIcon = new Graphics();
     trashIcon.moveTo(20, 20);
     trashIcon.lineTo(60, 60);
     trashIcon.moveTo(60, 20);
     trashIcon.lineTo(20, 60);
     trashIcon.stroke({ width: 4, color: 0xffffff });
-    trashIcon.position.set(220, 5);
-    this.toolbar.addChild(trashIcon);
+    this.trashCan.addChild(trashIcon);
 
     // Grid toggle button (top-right corner)
     this.gridToggleButton = new Graphics();
@@ -246,6 +339,7 @@ export class Engine {
     // Bunny click handler
     toolbarBunny.on("pointerdown", (e: any) => {
       e.stopPropagation();
+      this.hideTooltip();
       this.isDraggingFromToolbar = true;
       this.selectedTexture = bunnyTexture;
       this.soundManager.play('pickup');
@@ -260,8 +354,10 @@ export class Engine {
     // Turret click handler
     toolbarTurret.on("pointerdown", (e: any) => {
       e.stopPropagation();
+      this.hideTooltip();
       this.isDraggingFromToolbar = true;
       this.selectedTexture = turretTexture;
+      console.log("Selected TURRET from toolbar");
       this.soundManager.play('pickup');
 
       this.previewSprite = new Sprite(turretTexture);
@@ -270,6 +366,364 @@ export class Engine {
       this.previewSprite.scale.set(turretScale);
       this.world.addChild(this.previewSprite);
     });
+    
+    // Laser Turret click handler
+    toolbarLaserTurret.on("pointerdown", (e: any) => {
+      e.stopPropagation();
+      this.hideTooltip();
+      this.isDraggingFromToolbar = true;
+      this.selectedTexture = laserTurretTexture;
+      console.log("Selected LASER TURRET from toolbar");
+      this.soundManager.play('pickup');
+
+      this.previewSprite = new Sprite(laserTurretTexture);
+      this.previewSprite.anchor.set(0.5);
+      this.previewSprite.alpha = 0.7;
+      this.previewSprite.scale.set(laserTurretScale);
+      this.world.addChild(this.previewSprite);
+    });
+    
+    // Mine click handler
+    toolbarMine.on("pointerdown", (e: any) => {
+      e.stopPropagation();
+      this.hideTooltip();
+      this.isDraggingFromToolbar = true;
+      this.selectedTexture = mineTexture;
+      console.log("Selected MINE from toolbar");
+      this.soundManager.play('pickup');
+
+      this.previewSprite = new Sprite(mineTexture);
+      this.previewSprite.anchor.set(0.5);
+      this.previewSprite.alpha = 0.7;
+      this.previewSprite.scale.set(mineScale);
+      this.world.addChild(this.previewSprite);
+    });
+    
+    // Solar Panel click handler
+    toolbarSolar.on("pointerdown", (e: any) => {
+      e.stopPropagation();
+      this.hideTooltip();
+      this.isDraggingFromToolbar = true;
+      this.selectedTexture = solarPanelTexture;
+      console.log("Selected SOLAR PANEL from toolbar");
+      this.soundManager.play('pickup');
+
+      this.previewSprite = new Sprite(solarPanelTexture);
+      this.previewSprite.anchor.set(0.5);
+      this.previewSprite.alpha = 0.7;
+      this.previewSprite.scale.set(solarScale);
+      this.world.addChild(this.previewSprite);
+    });
+    
+    // Delete button drag handler
+    this.trashCan.on("pointerdown", (e: any) => {
+      e.stopPropagation();
+      this.isDraggingDeleteButton = true;
+      this.trashCan.cursor = 'grabbing';
+      this.deleteButtonOriginalPos = { 
+        x: this.trashCan.position.x, 
+        y: this.trashCan.position.y 
+      };
+      console.log("Started dragging delete button");
+    });
+    
+    // Create UI panel in top-left for health and resources
+    const uiPanel = new Container();
+    uiPanel.position.set(20, 20);
+    this.uiContainer.addChild(uiPanel);
+    
+    // Player 1 Planet health text
+    const p1HealthText = new Text({
+      text: `Player 1 Planet HP:`,
+      style: {
+        fontFamily: 'Orbitron',
+        fontSize: 16,
+        fontWeight: 'bold',
+        fill: 0x4CAF50,
+        stroke: { color: 0x000000, width: 3 },
+      }
+    });
+    uiPanel.addChild(p1HealthText);
+    
+    // Player 1 health bar background
+    this.player1HealthBarBg = new Graphics();
+    this.player1HealthBarBg.rect(0, 0, 200, 20);
+    this.player1HealthBarBg.fill({ color: 0x333333, alpha: 0.8 });
+    this.player1HealthBarBg.stroke({ width: 2, color: 0x000000 });
+    this.player1HealthBarBg.position.set(0, 25);
+    uiPanel.addChild(this.player1HealthBarBg);
+    
+    // Player 1 health bar fill
+    this.player1HealthBarFill = new Graphics();
+    this.player1HealthBarFill.rect(0, 0, 200, 20);
+    this.player1HealthBarFill.fill({ color: 0x4CAF50, alpha: 0.9 });
+    this.player1HealthBarFill.position.set(0, 25);
+    uiPanel.addChild(this.player1HealthBarFill);
+    
+    // Player 1 health text
+    this.player1HealthText = new Text({
+      text: '1000/1000',
+      style: {
+        fontFamily: 'Orbitron',
+        fontSize: 14,
+        fontWeight: 'bold',
+        fill: 0xFFFFFF,
+        stroke: { color: 0x000000, width: 2 },
+      }
+    });
+    this.player1HealthText.position.set(210, 25);
+    uiPanel.addChild(this.player1HealthText);
+    
+    // Player 2 Planet health text
+    const p2HealthText = new Text({
+      text: `Player 2 Planet HP:`,
+      style: {
+        fontFamily: 'Orbitron',
+        fontSize: 16,
+        fontWeight: 'bold',
+        fill: 0x2196F3,
+        stroke: { color: 0x000000, width: 3 },
+      }
+    });
+    p2HealthText.position.set(0, 55);
+    uiPanel.addChild(p2HealthText);
+    
+    // Player 2 health bar background
+    this.player2HealthBarBg = new Graphics();
+    this.player2HealthBarBg.rect(0, 0, 200, 20);
+    this.player2HealthBarBg.fill({ color: 0x333333, alpha: 0.8 });
+    this.player2HealthBarBg.stroke({ width: 2, color: 0x000000 });
+    this.player2HealthBarBg.position.set(0, 80);
+    uiPanel.addChild(this.player2HealthBarBg);
+    
+    // Player 2 health bar fill
+    this.player2HealthBarFill = new Graphics();
+    this.player2HealthBarFill.rect(0, 0, 200, 20);
+    this.player2HealthBarFill.fill({ color: 0x2196F3, alpha: 0.9 });
+    this.player2HealthBarFill.position.set(0, 80);
+    uiPanel.addChild(this.player2HealthBarFill);
+    
+    // Player 2 health text
+    this.player2HealthText = new Text({
+      text: '1000/1000',
+      style: {
+        fontFamily: 'Orbitron',
+        fontSize: 14,
+        fontWeight: 'bold',
+        fill: 0xFFFFFF,
+        stroke: { color: 0x000000, width: 2 },
+      }
+    });
+    this.player2HealthText.position.set(210, 80);
+    uiPanel.addChild(this.player2HealthText);
+    
+    // Ore icon
+    const oreIcon = new Sprite(oreIconTexture);
+    oreIcon.width = 32;
+    oreIcon.height = 32;
+    oreIcon.position.set(0, 115);
+    uiPanel.addChild(oreIcon);
+    
+    // Ore count text
+    this.oreText = new Text({
+      text: '500',
+      style: {
+        fontFamily: 'Orbitron',
+        fontSize: 24,
+        fontWeight: 'bold',
+        fill: 0xFFD700,
+        stroke: { color: 0x000000, width: 4 },
+      }
+    });
+    this.oreText.position.set(40, 115);
+    uiPanel.addChild(this.oreText);
+    
+    // Energy icon
+    const energyIcon = new Sprite(energyIconTexture);
+    energyIcon.width = 32;
+    energyIcon.height = 32;
+    energyIcon.position.set(0, 155);
+    uiPanel.addChild(energyIcon);
+    
+    // Energy count text with bar
+    this.energyText = new Text({
+      text: '100',
+      style: {
+        fontFamily: 'Orbitron',
+        fontSize: 24,
+        fontWeight: 'bold',
+        fill: 0xFFFF00,
+        stroke: { color: 0x000000, width: 4 },
+      }
+    });
+    this.energyText.position.set(40, 155);
+    uiPanel.addChild(this.energyText);
+    
+    // Energy bar background
+    this.energyBarBg = new Graphics();
+    this.energyBarBg.rect(0, 0, 200, 20);
+    this.energyBarBg.fill({ color: 0x333333, alpha: 0.8 });
+    this.energyBarBg.stroke({ width: 2, color: 0x000000 });
+    this.energyBarBg.position.set(40, 190);
+    uiPanel.addChild(this.energyBarBg);
+    
+    // Energy bar fill
+    this.energyBarFill = new Graphics();
+    this.energyBarFill.rect(0, 0, 200, 20);
+    this.energyBarFill.fill({ color: 0xFFFF00, alpha: 0.9 });
+    this.energyBarFill.position.set(40, 190);
+    uiPanel.addChild(this.energyBarFill);
+    
+    // Current turn indicator (top center)
+    this.gameInfoText = new Text({
+      text: `Player 1's Turn`,
+      style: {
+        fontFamily: 'Orbitron',
+        fontSize: 32,
+        fontWeight: 'bold',
+        fill: 0x4CAF50,
+        stroke: { color: 0x000000, width: 5 },
+      }
+    });
+    this.gameInfoText.anchor.set(0.5, 0);
+    this.gameInfoText.position.set(this.app.screen.width / 2, 20);
+    this.uiContainer.addChild(this.gameInfoText);
+    
+    // Add end turn button (bottom right corner)
+    this.endTurnButton = new Graphics();
+    this.endTurnButton.roundRect(0, 0, 120, 40, 5);
+    this.endTurnButton.fill({ color: 0xFF9800, alpha: 0.9 });
+    this.endTurnButton.stroke({ width: 2, color: 0xFFFFFF });
+    this.endTurnButton.position.set(this.app.screen.width - 140, this.app.screen.height - 60);
+    this.endTurnButton.eventMode = 'static';
+    this.endTurnButton.cursor = 'pointer';
+    
+    this.endTurnText = new Text({
+      text: 'End Turn',
+      style: {
+        fontFamily: 'Orbitron',
+        fontSize: 18,
+        fontWeight: 'bold',
+        fill: 0xFFFFFF,
+      }
+    });
+    this.endTurnText.anchor.set(0.5);
+    this.endTurnText.position.set(60, 20);
+    this.endTurnButton.addChild(this.endTurnText);
+    
+    this.endTurnButton.on('pointerdown', (e: any) => {
+      e.stopPropagation();
+      this.endTurn();
+    });
+    
+    this.uiContainer.addChild(this.endTurnButton);
+    
+    // Create info panel (initially hidden)
+    this.createInfoPanel();
+    
+    // Add keyboard listener for 'I' key to toggle info panel
+    window.addEventListener('keydown', (e) => {
+      if (e.key === 'i' || e.key === 'I') {
+        this.toggleInfoPanel();
+      }
+    });
+  }
+  
+  // Create the info panel with building information
+  createInfoPanel() {
+    this.infoPanelContainer = new Container();
+    this.infoPanelContainer.visible = false;
+    
+    // Background
+    const bg = new Graphics();
+    bg.rect(0, 0, 400, 450);
+    bg.fill({ color: 0x000000, alpha: 0.9 });
+    bg.stroke({ width: 3, color: 0x00FF00 });
+    this.infoPanelContainer.addChild(bg);
+    
+    // Title
+    const title = new Text({
+      text: 'BUILDING INFO (Press I to close)',
+      style: {
+        fontFamily: 'Orbitron',
+        fontSize: 18,
+        fontWeight: 'bold',
+        fill: 0x00FF00,
+      }
+    });
+    title.position.set(10, 10);
+    this.infoPanelContainer.addChild(title);
+    
+    // Building info text
+    const infoText = new Text({
+      text: [
+        '',
+        'TURRET',
+        'Cost: 200 Ore + 30 Energy',
+        'Damage: 200',
+        'Ammo: 3 max, +1/turn',
+        'Click and drag to fire',
+        '',
+        'LASER TURRET',
+        'Cost: 300 Ore + 40 Energy',
+        'Damage: 75 (faster projectile)',
+        'Ammo: 6 max, +2/turn',
+        'Click and drag to fire',
+        '',
+        'MINE',
+        'Cost: 150 Ore + 20 Energy',
+        'Generates +25 ore per turn',
+        '',
+        'SOLAR PANEL',
+        'Cost: 100 Ore + 15 Energy',
+        'Increases max energy by 50',
+        '',
+        'CONTROLS:',
+        '- Left-click & drag to place/fire',
+        '- Drag X button to delete buildings',
+        '- Buildings must be in shield',
+        '- Press I to toggle this panel',
+      ].join('\n'),
+      style: {
+        fontFamily: 'Orbitron',
+        fontSize: 13,
+        fill: 0xFFFFFF,
+        lineHeight: 20,
+      }
+    });
+    infoText.position.set(15, 45);
+    this.infoPanelContainer.addChild(infoText);
+    
+    // Position in center of screen
+    this.infoPanelContainer.position.set(
+      (this.app.screen.width - 400) / 2,
+      (this.app.screen.height - 450) / 2
+    );
+    
+    this.uiContainer.addChild(this.infoPanelContainer);
+    
+    // Add help text at bottom center
+    const helpText = new Text({
+      text: 'Press I for Building Info & Controls',
+      style: {
+        fontFamily: 'Orbitron',
+        fontSize: 14,
+        fontWeight: 'bold',
+        fill: 0xFFFF00,
+        stroke: { color: 0x000000, width: 3 },
+      }
+    });
+    helpText.anchor.set(0.5, 1);
+    helpText.position.set(this.app.screen.width / 2, this.app.screen.height - 10);
+    this.uiContainer.addChild(helpText);
+  }
+  
+  // Toggle info panel visibility
+  toggleInfoPanel() {
+    if (this.infoPanelContainer) {
+      this.infoPanelVisible = !this.infoPanelVisible;
+      this.infoPanelContainer.visible = this.infoPanelVisible;
+    }
   }
 
   // Generate asteroids and planets
@@ -278,8 +732,8 @@ export class Engine {
     const blackHoleScale = blackHoleTexture ? (this.TILE_SIZE * BLACK_HOLE_TILES) / blackHoleTexture.width : 1;
     const planetScale = (this.TILE_SIZE * PLANET_TILES) / planetTexture.width;
 
-    // Shield radius is 1.4x the planet radius (to match visual scale)
-    const shieldRadius = Math.round(PLANET_RADIUS * 1.4);
+    // Shield radius is 2x the planet radius (expanded from 1.4x)
+    this.shieldRadius = Math.round(PLANET_RADIUS * 2.0);
 
     // Generate planets FIRST (so asteroids can avoid them)
     const sharedRotationSpeed =
@@ -310,6 +764,7 @@ export class Engine {
         (planet1.getDisplay() as Container).scale.set(planetScale);
 
         this.placeSprite(x, y, planet1);
+        this.player1Base = planet1 as PlanetSprite; // Store reference
         
         // Create gravity field for planet
         applyGravityField(this.grid, x, y, 35, 0.5);
@@ -337,6 +792,7 @@ export class Engine {
         (planet2.getDisplay() as Container).scale.set(planetScale);
 
         this.placeSprite(x, y, planet2);
+        this.player2Base = planet2 as PlanetSprite; // Store reference
         
         // Create gravity field for planet
         applyGravityField(this.grid, x, y, 35, 0.5);
@@ -361,7 +817,7 @@ export class Engine {
         const dx = x - planet.centerX;
         const dy = y - planet.centerY;
         const distance = Math.sqrt(dx * dx + dy * dy);
-        if (distance < shieldRadius) {
+        if (distance < this.shieldRadius) {
           tooCloseToShield = true;
           break;
         }
@@ -400,7 +856,19 @@ export class Engine {
         const x = Math.floor(this.GRID_WIDTH * 0.2 + Math.random() * (this.GRID_WIDTH * 0.6));
         const y = Math.floor(Math.random() * this.GRID_HEIGHT);
 
-        if (this.canPlaceInRadius(x, y, BLACK_HOLE_RADIUS)) {
+        // Check if position is not within shield radius of any planet
+        let tooCloseToShield = false;
+        for (const planet of this.planets) {
+          const dx = x - planet.centerX;
+          const dy = y - planet.centerY;
+          const distance = Math.sqrt(dx * dx + dy * dy);
+          if (distance < this.shieldRadius) {
+            tooCloseToShield = true;
+            break;
+          }
+        }
+
+        if (!tooCloseToShield && this.canPlaceInRadius(x, y, BLACK_HOLE_RADIUS)) {
           const rotationSpeed = Math.random() * 0.003 + 0.001; // Slow rotation
           const blackHole = createSprite("blackhole", {
             texture: blackHoleTexture,
@@ -424,14 +892,18 @@ export class Engine {
   initTooltip() {
     this.tooltipBg = new Graphics();
     this.tooltipBg.visible = false;
-    this.app.stage.addChild(this.tooltipBg);
+    this.uiContainer.addChild(this.tooltipBg);
 
     this.tooltipText = new Text({
       text: "",
-      style: { fontSize: 12, fill: 0xffffff },
+      style: { 
+        fontFamily: 'Orbitron',
+        fontSize: 14, 
+        fill: 0xffffff 
+      },
     });
     this.tooltipText.visible = false;
-    this.app.stage.addChild(this.tooltipText);
+    this.uiContainer.addChild(this.tooltipText);
   }
 
   // Set explosion texture for creating explosion sprites
@@ -451,6 +923,20 @@ export class Engine {
     // Only show health if the sprite has health (not black holes)
     if (sprite.health > 0) {
       lines.splice(1, 0, `Health: ${sprite.health}`);
+    }
+    
+    // Show owner if owned by a player
+    if (sprite.owner > 0) {
+      lines.push(`Owner: Player ${sprite.owner}`);
+    }
+    
+    // Show ammo and damage for turrets
+    const turret = sprite as any;
+    if (turret.ammo !== undefined && turret.maxAmmo !== undefined) {
+      lines.push(`Ammo: ${turret.ammo}/${turret.maxAmmo}`);
+    }
+    if (turret.damage !== undefined) {
+      lines.push(`Damage: ${turret.damage}`);
     }
 
     this.tooltipText.text = lines.join("\n");
@@ -498,6 +984,50 @@ export class Engine {
     }
     
     this.highlightGraphic.fill({ color: 0xff8800, alpha: 0.3 });
+    
+    // Draw gravity field arrows (sample every few cells to avoid clutter)
+    const arrowSpacing = 8; // Draw arrow every N cells
+    const arrowScale = 3; // Scale factor for arrow length
+    const minArrowMagnitude = 0.01; // Only draw arrows above this threshold
+    
+    for (let y = 0; y < this.GRID_HEIGHT; y += arrowSpacing) {
+      for (let x = 0; x < this.GRID_WIDTH; x += arrowSpacing) {
+        const cell = this.grid[y][x];
+        const ax = cell.gravity.ax;
+        const ay = cell.gravity.ay;
+        const magnitude = Math.sqrt(ax * ax + ay * ay);
+        
+        if (magnitude > minArrowMagnitude) {
+          const worldPos = this.gridToWorld(x, y);
+          const endX = worldPos.x + ax * arrowScale * this.TILE_SIZE;
+          const endY = worldPos.y + ay * arrowScale * this.TILE_SIZE;
+          
+          // Draw arrow shaft
+          this.highlightGraphic.moveTo(worldPos.x, worldPos.y);
+          this.highlightGraphic.lineTo(endX, endY);
+          
+          // Draw arrowhead
+          const angle = Math.atan2(ay, ax);
+          const headLen = 4;
+          const headAngle = Math.PI / 6;
+          
+          this.highlightGraphic.lineTo(
+            endX - headLen * Math.cos(angle - headAngle),
+            endY - headLen * Math.sin(angle - headAngle)
+          );
+          this.highlightGraphic.moveTo(endX, endY);
+          this.highlightGraphic.lineTo(
+            endX - headLen * Math.cos(angle + headAngle),
+            endY - headLen * Math.sin(angle + headAngle)
+          );
+          
+          // Color by intensity (yellow for weak, red for strong)
+          const intensity = Math.min(magnitude / 0.5, 1); // Normalize to 0-1
+          const color = intensity > 0.5 ? 0xff0000 : 0xffff00;
+          this.highlightGraphic.stroke({ width: 2, color: color, alpha: 0.6 });
+        }
+      }
+    }
     
     // Draw gravity radius circles for objects with gravity
     for (let y = 0; y < this.GRID_HEIGHT; y++) {
@@ -558,9 +1088,11 @@ export class Engine {
     canvas.addEventListener("mousedown", (e: MouseEvent) => {
       if (!this.isDraggingFromToolbar) {
         const { gridX, gridY } = this.screenToGrid(e.clientX, e.clientY);
-
+        
+        // First check if clicking on a gun
         if (gridX >= 0 && gridX < this.GRID_WIDTH && gridY >= 0 && gridY < this.GRID_HEIGHT) {
           const cell = this.grid[gridY][gridX];
+          
           if (cell.occupied) {
             // For multi-tile sprites, get sprite from center cell
             let sprite = cell.sprite;
@@ -574,13 +1106,27 @@ export class Engine {
             }
 
             if (sprite) {
-              if (sprite.immutable) {
+              console.log(`Clicked sprite: ${sprite.name}, type: ${sprite.type}, immutable: ${sprite.immutable}, owner: ${sprite.owner}`);
+              if (sprite.type === "Weapon") {
+                // Check if player owns this turret
+                if (sprite.owner !== this.currentPlayer) {
+                  console.log(`Cannot fire enemy turret!`);
+                  this.soundManager.play('invalidPlacement');
+                  return;
+                }
+                
+                // Turrets fire projectiles instead of being launched
+                this.isLaunching = true;
+                this.launchStartPos = { x: e.clientX, y: e.clientY };
+                this.launchSprite = sprite; // Store turret reference to get position
+                console.log(`Click and drag to fire projectile from ${sprite.name}`);
+              } else if (sprite.immutable) {
                 console.log(`Cannot move ${sprite.name} - it's immutable`);
                 this.isDragging = true;
                 this.dragStart.x = e.clientX - this.world.x;
                 this.dragStart.y = e.clientY - this.world.y;
               } else {
-                // Start launch mode for non-immutable sprites (bunnies, turrets)
+                // Start launch mode for bunnies
                 this.isLaunching = true;
                 this.launchStartPos = { x: e.clientX, y: e.clientY };
                 this.launchSprite = sprite;
@@ -608,17 +1154,107 @@ export class Engine {
     });
 
     canvas.addEventListener("mouseup", (e: MouseEvent) => {
+      if (this.gameOver) {
+        // Allow dragging camera even when game is over, but prevent other actions
+        this.isDragging = false;
+        this.isLaunching = false;
+        this.launchStartPos = null;
+        this.launchSprite = null;
+        this.aimerGraphics.clear();
+        this.isDraggingFromToolbar = false;
+        if (this.previewSprite) {
+          this.world.removeChild(this.previewSprite);
+          this.previewSprite = null;
+        }
+        this.selectedTexture = null;
+        return;
+      }
+      
       if (this.isLaunching && this.launchStartPos && this.launchSprite) {
         // Calculate launch velocity based on drag distance
         const dx = this.launchStartPos.x - e.clientX;
         const dy = this.launchStartPos.y - e.clientY;
         
-        // Scale factor for launch velocity (increased for faster projectiles)
-        const velocityScale = 0.1;
-        this.launchSprite.vx = dx * velocityScale;
-        this.launchSprite.vy = dy * velocityScale;
-        
-        console.log(`Launched ${this.launchSprite.name} with velocity (${this.launchSprite.vx.toFixed(2)}, ${this.launchSprite.vy.toFixed(2)})`);
+        // Check if launching from a turret (fire projectile) or launching a bunny
+        if (this.launchSprite.type === "Weapon") {
+          // Check if player has energy remaining
+          const energyCost = 20;
+          if (this.playerEnergy[this.currentPlayer] < energyCost) {
+            console.log("Not enough energy to fire!");
+            this.soundManager.play('invalidPlacement');
+            this.isLaunching = false;
+            this.launchStartPos = null;
+            this.launchSprite = null;
+            this.aimerGraphics.clear();
+            return;
+          }
+          
+          // Fire a projectile from turret instead of launching the turret
+          if (this.bunnyTexture) {
+            // Check if turret has ammo
+            const turret = this.launchSprite as any;
+            if (turret.ammo !== undefined && turret.ammo <= 0) {
+              console.log(`${this.launchSprite.name} has no ammo!`);
+              this.soundManager.play('invalidPlacement');
+              this.isLaunching = false;
+              this.launchStartPos = null;
+              this.launchSprite = null;
+              this.aimerGraphics.clear();
+              return;
+            }
+            
+            // Choose projectile texture and sound based on turret type
+            const isLaserTurret = this.launchSprite.name === "Laser Turret";
+            const projectileTexture = isLaserTurret ? this.laserTexture : this.missileTexture;
+            const soundEffect = isLaserTurret ? 'laser' : 'missileFire';
+            
+            const projectile = createSprite("bunny", {
+              texture: projectileTexture || this.bunnyTexture,
+              name: "Projectile",
+            });
+            
+            // Scale the projectile
+            const BUNNY_TILES = 1;
+            const projectileScale = ((this.TILE_SIZE * BUNNY_TILES) / Math.max((projectileTexture || this.bunnyTexture).width, (projectileTexture || this.bunnyTexture).height));
+            (projectile.getDisplay() as Sprite).scale.set(projectileScale);
+            
+            // Position at turret location
+            const turretPos = this.launchSprite.getDisplay().position;
+            projectile.getDisplay().position.set(turretPos.x, turretPos.y);
+            
+            // Set velocity based on drag (lasers are faster)
+            const velocityScale = isLaserTurret ? 0.15 : 0.1;
+            projectile.vx = dx * velocityScale;
+            projectile.vy = dy * velocityScale;
+            
+            // Store reference to firing turret and damage
+            (projectile as any).firingTurret = this.launchSprite;
+            (projectile as any).damage = turret.damage || 50; // Use turret's damage value
+            
+            // Add to world and projectiles array (will be added to grid when it moves)
+            this.world.addChild(projectile.getDisplay());
+            this.projectiles.push(projectile);
+            
+            // Decrement turret ammo
+            if (turret.ammo !== undefined) {
+              turret.ammo--;
+            }
+            
+            // Deduct energy cost
+            this.playerEnergy[this.currentPlayer] -= energyCost;
+            this.updateGameInfo();
+            
+            this.soundManager.play(soundEffect);
+            console.log(`Turret fired projectile with velocity (${projectile.vx.toFixed(2)}, ${projectile.vy.toFixed(2)})`);
+          }
+        } else {
+          // Launch the sprite itself (bunnies)
+          const velocityScale = 0.1;
+          this.launchSprite.vx = dx * velocityScale;
+          this.launchSprite.vy = dy * velocityScale;
+          
+          console.log(`Launched ${this.launchSprite.name} with velocity (${this.launchSprite.vx.toFixed(2)}, ${this.launchSprite.vy.toFixed(2)})`);
+        }
         
         // Reset launch state and clear aimer
         this.isLaunching = false;
@@ -626,29 +1262,180 @@ export class Engine {
         this.launchSprite = null;
         this.aimerGraphics.clear();
       } else if (this.isDraggingFromToolbar && this.previewSprite && this.selectedTexture) {
+        if (this.gameOver) return; // Prevent placement when game is over
+        
         const { gridX, gridY } = this.screenToGrid(e.clientX, e.clientY);
 
         if (gridX >= 0 && gridX < this.GRID_WIDTH && gridY >= 0 && gridY < this.GRID_HEIGHT) {
-          // Determine sprite type based on texture
           const isTurret = this.selectedTexture === this.turretTexture;
-          const radius = isTurret ? 1 : 0;
+          const isLaserTurret = this.selectedTexture === this.gunTexture; // gunTexture now holds laser turret
           
-          if (this.canPlaceInRadius(gridX, gridY, radius)) {
-            // Create the appropriate sprite
-            const sprite = createSprite(isTurret ? "turret" : "bunny", {
-              texture: this.selectedTexture,
-              name: isTurret ? "Turret" : "Building",
-            });
-            const SPRITE_TILES = isTurret ? TURRET_TILES : 1;
-            const spriteScale = ((this.TILE_SIZE * SPRITE_TILES) / Math.max(this.selectedTexture.width, this.selectedTexture.height));
-            (sprite.getDisplay() as Sprite).scale.set(spriteScale);
+          if (isTurret) {
+            // Turret placement - fires bunny projectiles
+            const turretCost = 200;
+            const turretEnergyCost = 30;
+            
+            if (this.playerOre[this.currentPlayer] < turretCost) {
+              console.log("Not enough ore to buy turret!");
+              this.soundManager.play('invalidPlacement');
+            } else if (this.playerEnergy[this.currentPlayer] < turretEnergyCost) {
+              console.log("Not enough energy to build turret!");
+              this.soundManager.play('invalidPlacement');
+            } else if (!this.isWithinPlayerShield(gridX, gridY)) {
+              console.log("Cannot place turret - must be within your shield!");
+              this.soundManager.play('invalidPlacement');
+            } else {
+              const sprite = createSprite("turret", {
+                texture: this.selectedTexture,
+                name: "Turret",
+              });
+              sprite.owner = this.currentPlayer; // Set ownership
+              
+              if (this.canPlaceInRadius(gridX, gridY, sprite.radius)) {
+                const spriteScale = ((this.TILE_SIZE * TURRET_TILES) / Math.max(this.selectedTexture.width, this.selectedTexture.height));
+                (sprite.getDisplay() as Sprite).scale.set(spriteScale);
 
-            this.placeSprite(gridX, gridY, sprite);
-            this.soundManager.play('placeBuilding');
-            console.log(`Placed ${isTurret ? 'turret' : 'building'} at grid (${gridX}, ${gridY})`);
+                this.placeSprite(gridX, gridY, sprite);
+                this.playerOre[this.currentPlayer] -= turretCost;
+                this.playerEnergy[this.currentPlayer] -= turretEnergyCost;
+                this.updateGameInfo();
+                this.soundManager.play('placeBuilding');
+                console.log(`Placed turret at grid (${gridX}, ${gridY}) with radius ${sprite.radius}`);
+              } else {
+                this.soundManager.play('invalidPlacement');
+                console.log("Cannot place turret - cells occupied or out of bounds");
+              }
+            }
+          } else if (isLaserTurret) {
+            // Laser Turret placement
+            const laserTurretCost = 300;
+            const laserTurretEnergyCost = 40;
+            
+            if (this.playerOre[this.currentPlayer] < laserTurretCost) {
+              console.log("Not enough ore to buy laser turret!");
+              this.soundManager.play('invalidPlacement');
+            } else if (this.playerEnergy[this.currentPlayer] < laserTurretEnergyCost) {
+              console.log("Not enough energy to build laser turret!");
+              this.soundManager.play('invalidPlacement');
+            } else if (!this.isWithinPlayerShield(gridX, gridY)) {
+              console.log("Cannot place laser turret - must be within your shield!");
+              this.soundManager.play('invalidPlacement');
+            } else {
+              const sprite = createSprite("laserTurret", {
+                texture: this.selectedTexture,
+                name: "Laser Turret",
+              });
+              sprite.owner = this.currentPlayer; // Set ownership
+              
+              if (this.canPlaceInRadius(gridX, gridY, sprite.radius)) {
+                const spriteScale = ((this.TILE_SIZE * TURRET_TILES) / Math.max(this.selectedTexture.width, this.selectedTexture.height));
+                (sprite.getDisplay() as Sprite).scale.set(spriteScale);
+
+                this.placeSprite(gridX, gridY, sprite);
+                this.playerOre[this.currentPlayer] -= laserTurretCost;
+                this.playerEnergy[this.currentPlayer] -= laserTurretEnergyCost;
+                this.updateGameInfo();
+                this.soundManager.play('placeBuilding');
+                console.log(`Placed laser turret at grid (${gridX}, ${gridY}) with radius ${sprite.radius}`);
+              } else {
+                this.soundManager.play('invalidPlacement');
+                console.log("Cannot place laser turret - cells occupied or out of bounds");
+              }
+            }
+          } else if (this.selectedTexture === this.mineTexture) {
+            // Mine placement - generates ore per turn
+            const mineCost = 150;
+            const mineEnergyCost = 20;
+            
+            if (this.playerOre[this.currentPlayer] < mineCost) {
+              console.log("Not enough ore to buy mine!");
+              this.soundManager.play('invalidPlacement');
+            } else if (this.playerEnergy[this.currentPlayer] < mineEnergyCost) {
+              console.log("Not enough energy to build mine!");
+              this.soundManager.play('invalidPlacement');
+            } else if (!this.isWithinPlayerShield(gridX, gridY)) {
+              console.log("Cannot place mine - must be within your shield!");
+              this.soundManager.play('invalidPlacement');
+            } else {
+              const sprite = createSprite("mine", {
+                texture: this.selectedTexture,
+                name: "Mine",
+              });
+              sprite.owner = this.currentPlayer; // Set ownership
+              
+              if (this.canPlaceInRadius(gridX, gridY, sprite.radius)) {
+                const spriteScale = ((this.TILE_SIZE * TURRET_TILES) / Math.max(this.selectedTexture.width, this.selectedTexture.height));
+                (sprite.getDisplay() as Sprite).scale.set(spriteScale);
+
+                this.placeSprite(gridX, gridY, sprite);
+                this.playerOre[this.currentPlayer] -= mineCost;
+                this.playerEnergy[this.currentPlayer] -= mineEnergyCost;
+                this.playerMineCount[this.currentPlayer]++;
+                this.updateGameInfo();
+                this.soundManager.play('placeBuilding');
+                console.log(`Placed mine at grid (${gridX}, ${gridY})`);
+              } else {
+                this.soundManager.play('invalidPlacement');
+                console.log("Cannot place mine - cells occupied or out of bounds");
+              }
+            }
+          } else if (this.selectedTexture === this.solarPanelTexture) {
+            // Solar Panel placement - increases max energy
+            const solarCost = 100;
+            const solarEnergyCost = 15;
+            
+            if (this.playerOre[this.currentPlayer] < solarCost) {
+              console.log("Not enough ore to buy solar panel!");
+              this.soundManager.play('invalidPlacement');
+            } else if (this.playerEnergy[this.currentPlayer] < solarEnergyCost) {
+              console.log("Not enough energy to build solar panel!");
+              this.soundManager.play('invalidPlacement');
+            } else if (!this.isWithinPlayerShield(gridX, gridY)) {
+              console.log("Cannot place solar panel - must be within your shield!");
+              this.soundManager.play('invalidPlacement');
+            } else {
+              const sprite = createSprite("solarPanel", {
+                texture: this.selectedTexture,
+                name: "Solar Panel",
+              });
+              sprite.owner = this.currentPlayer; // Set ownership
+              
+              if (this.canPlaceInRadius(gridX, gridY, sprite.radius)) {
+                const spriteScale = ((this.TILE_SIZE * TURRET_TILES) / Math.max(this.selectedTexture.width, this.selectedTexture.height));
+                (sprite.getDisplay() as Sprite).scale.set(spriteScale);
+
+                this.placeSprite(gridX, gridY, sprite);
+                this.playerOre[this.currentPlayer] -= solarCost;
+                this.playerEnergy[this.currentPlayer] -= solarEnergyCost;
+                this.playerSolarCount[this.currentPlayer]++;
+                this.playerMaxEnergy[this.currentPlayer] += 50; // +50 max energy per solar panel
+                this.updateGameInfo();
+                this.soundManager.play('placeBuilding');
+                console.log(`Placed solar panel at grid (${gridX}, ${gridY})`);
+              } else {
+                this.soundManager.play('invalidPlacement');
+                console.log("Cannot place solar panel - cells occupied or out of bounds");
+              }
+            }
           } else {
-            this.soundManager.play('invalidPlacement');
-            console.log("Cannot place - cells occupied or out of bounds");
+            // Bunny placement
+            const sprite = createSprite("bunny", {
+              texture: this.selectedTexture,
+              name: "Building",
+            });
+            
+            if (this.canPlaceInRadius(gridX, gridY, sprite.radius)) {
+              const SPRITE_TILES = 1;
+              const spriteScale = ((this.TILE_SIZE * SPRITE_TILES) / Math.max(this.selectedTexture.width, this.selectedTexture.height));
+              (sprite.getDisplay() as Sprite).scale.set(spriteScale);
+
+              this.placeSprite(gridX, gridY, sprite);
+              this.soundManager.play('placeBuilding');
+              console.log(`Placed bunny at grid (${gridX}, ${gridY}) with radius ${sprite.radius}`);
+            } else {
+              this.soundManager.play('invalidPlacement');
+              console.log("Cannot place bunny - cells occupied or out of bounds");
+            }
           }
         }
 
@@ -656,6 +1443,66 @@ export class Engine {
         this.previewSprite = null;
         this.highlightGraphic.clear();
         this.selectedTexture = null;
+      } else if (this.isDraggingDeleteButton) {
+        // Handle deletion if released over a building
+        if (this.highlightedBuildingForDelete) {
+          const sprite = this.highlightedBuildingForDelete;
+          
+          // Find the sprite's grid position
+          let spriteGridX = -1;
+          let spriteGridY = -1;
+          outerLoop: for (let y = 0; y < this.GRID_HEIGHT; y++) {
+            for (let x = 0; x < this.GRID_WIDTH; x++) {
+              if (this.grid[y][x].sprite === sprite) {
+                spriteGridX = x;
+                spriteGridY = y;
+                break outerLoop;
+              }
+            }
+          }
+          
+          if (spriteGridX >= 0 && spriteGridY >= 0) {
+            // Calculate refund (1/4 of build cost)
+            let refund = 0;
+            if (sprite.name === "Turret") {
+              refund = Math.floor(200 / 4);
+            } else if (sprite.name === "Laser Turret") {
+              refund = Math.floor(300 / 4);
+            } else if (sprite.name === "Mine") {
+              refund = Math.floor(150 / 4);
+              this.playerMineCount[this.currentPlayer]--;
+            } else if (sprite.name === "Solar Panel") {
+              refund = Math.floor(100 / 4);
+              this.playerSolarCount[this.currentPlayer]--;
+              this.playerMaxEnergy[this.currentPlayer] -= 50;
+              // Cap current energy to new max
+              this.playerEnergy[this.currentPlayer] = Math.min(
+                this.playerEnergy[this.currentPlayer],
+                this.playerMaxEnergy[this.currentPlayer]
+              );
+            }
+            
+            // Remove tint before deletion
+            (sprite.getDisplay() as Sprite).tint = 0xffffff;
+            
+            // Delete the building
+            this.removeSprite(spriteGridX, spriteGridY);
+            
+            // Give refund
+            this.playerOre[this.currentPlayer] += refund;
+            this.updateGameInfo();
+            
+            this.soundManager.play('explosion');
+            console.log(`Deleted ${sprite.name}, refunded ${refund} ore`);
+          }
+          
+          this.highlightedBuildingForDelete = null;
+        }
+        
+        // Reset delete button to original position
+        this.trashCan.position.set(this.deleteButtonOriginalPos.x, this.deleteButtonOriginalPos.y);
+        this.trashCan.cursor = 'grab';
+        this.isDraggingDeleteButton = false;
       }
 
       this.isDraggingFromToolbar = false;
@@ -663,7 +1510,44 @@ export class Engine {
     });
 
     canvas.addEventListener("mousemove", (e: MouseEvent) => {
-      if (this.isDraggingFromToolbar && this.previewSprite) {
+      if (this.isDraggingDeleteButton) {
+        // Move delete button with cursor
+        const toolbarRelativeX = e.clientX - this.toolbar.position.x;
+        const toolbarRelativeY = e.clientY - this.toolbar.position.y;
+        this.trashCan.position.set(toolbarRelativeX - 40, toolbarRelativeY - 40);
+        
+        // Check if hovering over a building that can be deleted
+        const { gridX, gridY } = this.screenToGrid(e.clientX, e.clientY);
+        if (gridX >= 0 && gridX < this.GRID_WIDTH && gridY >= 0 && gridY < this.GRID_HEIGHT) {
+          const cell = this.grid[gridY][gridX];
+          let sprite = cell.sprite;
+          if (!sprite && cell.centerX !== undefined && cell.centerY !== undefined) {
+            sprite = this.grid[cell.centerY][cell.centerX].sprite;
+          }
+          
+          // Can only delete buildings owned by current player (turrets, mines, solar panels - not planets, asteroids, black holes)
+          const isDeletableBuilding = sprite && sprite.owner === this.currentPlayer && 
+            (sprite.type === "Weapon" || sprite.type === "Resource");
+          
+          if (isDeletableBuilding && sprite) {
+            if (this.highlightedBuildingForDelete !== sprite) {
+              this.highlightedBuildingForDelete = sprite;
+              // Highlight the building with red tint
+              (sprite.getDisplay() as Sprite).tint = 0xff8888;
+            }
+          } else {
+            if (this.highlightedBuildingForDelete) {
+              (this.highlightedBuildingForDelete.getDisplay() as Sprite).tint = 0xffffff;
+              this.highlightedBuildingForDelete = null;
+            }
+          }
+        } else {
+          if (this.highlightedBuildingForDelete) {
+            (this.highlightedBuildingForDelete.getDisplay() as Sprite).tint = 0xffffff;
+            this.highlightedBuildingForDelete = null;
+          }
+        }
+      } else if (this.isDraggingFromToolbar && this.previewSprite) {
         const { gridX, gridY } = this.screenToGrid(e.clientX, e.clientY);
 
         if (gridX >= 0 && gridX < this.GRID_WIDTH && gridY >= 0 && gridY < this.GRID_HEIGHT) {
@@ -685,7 +1569,7 @@ export class Engine {
         this.world.y = e.clientY - this.dragStart.y;
         this.hideTooltip();
       } else {
-        // Show tooltip on hover
+        // Show tooltip on hover for grid sprites
         const { gridX, gridY } = this.screenToGrid(e.clientX, e.clientY);
         if (
           gridX >= 0 &&
@@ -823,6 +1707,26 @@ export class Engine {
                 currentGridY >= 0 && currentGridY < this.GRID_HEIGHT) {
               ax = this.grid[currentGridY][currentGridX].gravity.ax;
               ay = this.grid[currentGridY][currentGridX].gravity.ay;
+              
+              // If sprite should ignore gravity from a specific planet, calculate and subtract it
+              if (sprite.ignorePlanetGravity) {
+                const planetInfo = sprite.ignorePlanetGravity;
+                const dx = currentGridX - planetInfo.centerX;
+                const dy = currentGridY - planetInfo.centerY;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+                
+                // Only subtract if within the planet's gravity radius (35 tiles for planets)
+                if (dist > 0 && dist <= 35) {
+                  // Calculate what the planet's gravity contribution would be
+                  const force = 0.5 * (1 - dist / 35); // Planet strength is 0.5, radius is 35
+                  const planetAx = (-dx / dist) * force;
+                  const planetAy = (-dy / dist) * force;
+                  
+                  // Subtract the planet's gravity
+                  ax -= planetAx;
+                  ay -= planetAy;
+                }
+              }
             }
             
             sprite.update(time.deltaTime, ax, ay);
@@ -970,6 +1874,97 @@ export class Engine {
         this.explosions.splice(i, 1);
       }
     }
+    
+    // Update projectiles that aren't in the grid yet
+    for (let i = this.projectiles.length - 1; i >= 0; i--) {
+      const projectile = this.projectiles[i];
+      const worldPos = projectile.getDisplay().position;
+      const currentGridX = Math.floor(worldPos.x / this.TILE_SIZE);
+      const currentGridY = Math.floor(worldPos.y / this.TILE_SIZE);
+      
+      // Get gravity
+      let ax = 0;
+      let ay = 0;
+      if (currentGridX >= 0 && currentGridX < this.GRID_WIDTH && 
+          currentGridY >= 0 && currentGridY < this.GRID_HEIGHT) {
+        ax = this.grid[currentGridY][currentGridX].gravity.ax;
+        ay = this.grid[currentGridY][currentGridX].gravity.ay;
+      }
+      
+      // Update projectile physics
+      projectile.update(time.deltaTime, ax, ay);
+      
+      // Add to grid once it starts moving away from turret
+      const newGridX = Math.floor(projectile.getDisplay().position.x / this.TILE_SIZE);
+      const newGridY = Math.floor(projectile.getDisplay().position.y / this.TILE_SIZE);
+      
+      if (newGridX >= 0 && newGridX < this.GRID_WIDTH && newGridY >= 0 && newGridY < this.GRID_HEIGHT) {
+        const newCell = this.grid[newGridY][newGridX];
+        const firingTurret = (projectile as any).firingTurret;
+        
+        // Check if we're still inside the turret that fired us - just keep moving
+        if (newCell.occupied && newCell.sprite === firingTurret) {
+          // Still inside firing turret, don't add to grid yet
+          continue;
+        }
+        
+        // Check if we hit another sprite
+        if (newCell.occupied && newCell.sprite && newCell.sprite !== projectile) {
+          const hitSprite = newCell.sprite;
+          
+          // Black holes are indestructible - projectile is destroyed but black hole takes no damage
+          if (hitSprite.name === "Black Hole") {
+            console.log(`COLLISION! Projectile absorbed by ${hitSprite.name} (indestructible)`);
+            
+            // Create explosion at projectile location
+            const projectileWorldPos = projectile.getDisplay().position;
+            this.createExplosion(projectileWorldPos.x, projectileWorldPos.y, 0.5);
+            this.soundManager.play('explosion');
+            
+            // Remove projectile
+            this.world.removeChild(projectile.getDisplay());
+            this.projectiles.splice(i, 1);
+            
+            this.needsOccupiedCellsRedraw = true;
+            // Continue to next projectile
+            continue;
+          }
+          
+          // Collision! Deal damage to the sprite we hit
+          const damage = (projectile as any).damage || 50; // Use projectile's stored damage
+          hitSprite.health -= damage;
+          console.log(`Projectile hit ${hitSprite.name} for ${damage} damage (${hitSprite.health} HP remaining)`);
+          
+          // Create explosion at projectile location
+          const projectileWorldPos = projectile.getDisplay().position;
+          this.createExplosion(projectileWorldPos.x, projectileWorldPos.y, 0.5);
+          this.soundManager.play('explosion');
+          
+          // Remove projectile
+          this.world.removeChild(projectile.getDisplay());
+          this.projectiles.splice(i, 1);
+          
+          // Check if sprite was destroyed
+          if (hitSprite.health <= 0) {
+            console.log(`${hitSprite.name} destroyed!`);
+            // Use the center coordinates to properly remove multi-tile sprites
+            const centerX = newCell.centerX !== undefined ? newCell.centerX : newGridX;
+            const centerY = newCell.centerY !== undefined ? newCell.centerY : newGridY;
+            this.removeSprite(centerX, centerY);
+          }
+          this.needsOccupiedCellsRedraw = true;
+          // Continue to next projectile
+          continue;
+        }
+        // If cell is empty, projectile continues flying (don't add to grid)
+      }
+      
+      // Remove if out of bounds
+      if (newGridX < 0 || newGridX >= this.GRID_WIDTH || newGridY < 0 || newGridY >= this.GRID_HEIGHT) {
+        this.world.removeChild(projectile.getDisplay());
+        this.projectiles.splice(i, 1);
+      }
+    }
 
     // update stars
     this.starArray.forEach((star) => {
@@ -998,21 +1993,45 @@ export class Engine {
   }
 
   // Helper to get all cells within a circular radius
-  getCellsInRadius(centerX: number, centerY: number, radius: number): { x: number; y: number }[] {
+  getCellsInRadius(centerX: number, centerY: number, radius: number, shape: "circle" | "square" = "circle"): { x: number; y: number }[] {
     const cells: { x: number; y: number }[] = [];
-    for (let dy = -radius; dy <= radius; dy++) {
-      for (let dx = -radius; dx <= radius; dx++) {
-        if (dx * dx + dy * dy <= radius * radius) {
-          cells.push({ x: centerX + dx, y: centerY + dy });
+    
+    if (shape === "square") {
+      // For square mode:
+      // radius 0 = 2x2 square starting at (centerX, centerY)
+      // radius 1 = 3x3 square centered on (centerX, centerY)
+      if (radius === 0) {
+        // 2x2 square: (x, y), (x+1, y), (x, y+1), (x+1, y+1)
+        for (let dy = 0; dy <= 1; dy++) {
+          for (let dx = 0; dx <= 1; dx++) {
+            cells.push({ x: centerX + dx, y: centerY + dy });
+          }
+        }
+      } else {
+        // NxN square centered on (centerX, centerY)
+        for (let dy = -radius; dy <= radius; dy++) {
+          for (let dx = -radius; dx <= radius; dx++) {
+            cells.push({ x: centerX + dx, y: centerY + dy });
+          }
+        }
+      }
+    } else {
+      // Circle shape (original behavior)
+      for (let dy = -radius; dy <= radius; dy++) {
+        for (let dx = -radius; dx <= radius; dx++) {
+          if (dx * dx + dy * dy <= radius * radius) {
+            cells.push({ x: centerX + dx, y: centerY + dy });
+          }
         }
       }
     }
+    
     return cells;
   }
 
   // Check if all cells in radius are available
-  canPlaceInRadius(centerX: number, centerY: number, radius: number): boolean {
-    const cells = this.getCellsInRadius(centerX, centerY, radius);
+  canPlaceInRadius(centerX: number, centerY: number, radius: number, shape: "circle" | "square" = "circle"): boolean {
+    const cells = this.getCellsInRadius(centerX, centerY, radius, shape);
     for (const cell of cells) {
       if (
         cell.x < 0 ||
@@ -1029,22 +2048,33 @@ export class Engine {
     return true;
   }
 
+  // Check if position is within current player's shield
+  isWithinPlayerShield(gridX: number, gridY: number): boolean {
+    const playerBase = this.currentPlayer === 1 ? this.player1Base : this.player2Base;
+    if (!playerBase) return false;
+    
+    const dx = gridX - playerBase.centerX;
+    const dy = gridY - playerBase.centerY;
+    const distance = Math.sqrt(dx * dx + dy * dy);
+    
+    return distance <= this.shieldRadius;
+  }
+
   // Place sprite with radius occupation
   placeSprite(gridX: number, gridY: number, sprite: GameSprite): boolean {
-    if (!this.canPlaceInRadius(gridX, gridY, sprite.radius)) {
+    console.log(`placeSprite called: gridX=${gridX}, gridY=${gridY}, sprite=${sprite.name}, radius=${sprite.radius}, shape=${sprite.shape}`);
+    if (!this.canPlaceInRadius(gridX, gridY, sprite.radius, sprite.shape)) {
       return false;
     }
 
     // Occupy all cells in radius
-    const cells = this.getCellsInRadius(gridX, gridY, sprite.radius);
+    const cells = this.getCellsInRadius(gridX, gridY, sprite.radius, sprite.shape);
+    console.log(`Occupying ${cells.length} cells for ${sprite.name} with radius ${sprite.radius} and shape ${sprite.shape}`);
     for (const cell of cells) {
       this.grid[cell.y][cell.x].occupied = true;
       this.grid[cell.y][cell.x].centerX = gridX;
       this.grid[cell.y][cell.x].centerY = gridY;
-      // Only add sprite reference to the center cell
-      if (cell.x === gridX && cell.y === gridY) {
-        this.grid[cell.y][cell.x].sprite = sprite;
-      }
+      this.grid[cell.y][cell.x].sprite = sprite; // Add sprite reference to ALL cells
     }
 
     // Position sprite
@@ -1084,9 +2114,10 @@ export class Engine {
 
     const sprite = cell.sprite;
     const radius = sprite.radius;
+    const shape = sprite.shape;
 
     // Clear all cells in radius
-    const cells = this.getCellsInRadius(gridX, gridY, radius);
+    const cells = this.getCellsInRadius(gridX, gridY, radius, shape);
     for (const cellPos of cells) {
       this.grid[cellPos.y][cellPos.x].occupied = false;
       this.grid[cellPos.y][cellPos.x].sprite = null;
@@ -1108,6 +2139,42 @@ export class Engine {
       if (index > -1) {
         this.planets.splice(index, 1);
       }
+      
+      // Check if a base was destroyed (win condition)
+      if (sprite === this.player1Base) {
+        this.endGame("Player 2");
+      } else if (sprite === this.player2Base) {
+        this.endGame("Player 1");
+      }
+    }
+    
+    // Decrement mine count if a mine was destroyed
+    if (sprite.name === "Mine" && sprite.owner > 0) {
+      this.playerMineCount[sprite.owner]--;
+      console.log(`Player ${sprite.owner} lost a mine. Remaining: ${this.playerMineCount[sprite.owner]}`);
+    }
+    
+    // Decrement solar panel count and max energy if a solar panel was destroyed
+    if (sprite.name === "Solar Panel" && sprite.owner > 0) {
+      this.playerSolarCount[sprite.owner]--;
+      this.playerMaxEnergy[sprite.owner] -= 50;
+      // Also reduce current energy if it exceeds new max
+      if (this.playerEnergy[sprite.owner] > this.playerMaxEnergy[sprite.owner]) {
+        this.playerEnergy[sprite.owner] = this.playerMaxEnergy[sprite.owner];
+      }
+      console.log(`Player ${sprite.owner} lost a solar panel. Max energy: ${this.playerMaxEnergy[sprite.owner]}`);
+    }
+    
+    // Reward ore for destroying asteroids (scales with health/size)
+    if (sprite.type === "Debris") {
+      // Max health ranges from 250-750
+      // Ore reward: 100-300 based on size, with some randomness
+      const baseReward = Math.floor(sprite.maxHealth * 0.3); // 75-225
+      const randomBonus = Math.floor(Math.random() * 75); // 0-75
+      const oreReward = baseReward + randomBonus; // 75-300
+      this.playerOre[this.currentPlayer] += oreReward;
+      console.log(`Player ${this.currentPlayer} destroyed asteroid (${sprite.maxHealth} HP) and gained ${oreReward} ore!`);
+      this.updateGameInfo();
     }
 
     // Mark that occupied cells need redrawing
@@ -1125,14 +2192,15 @@ export class Engine {
 
     const sprite = fromCell.sprite;
     const radius = sprite.radius;
+    const shape = sprite.shape;
 
     // Check if we can place at destination (temporarily clear source cells for check)
-    const sourceCells = this.getCellsInRadius(fromX, fromY, radius);
+    const sourceCells = this.getCellsInRadius(fromX, fromY, radius, shape);
     for (const cell of sourceCells) {
       this.grid[cell.y][cell.x].occupied = false;
     }
 
-    const canPlace = this.canPlaceInRadius(toX, toY, radius);
+    const canPlace = this.canPlaceInRadius(toX, toY, radius, shape);
 
     // Restore source cells
     for (const cell of sourceCells) {
@@ -1152,7 +2220,7 @@ export class Engine {
     }
 
     // Place at new position
-    const destCells = this.getCellsInRadius(toX, toY, radius);
+    const destCells = this.getCellsInRadius(toX, toY, radius, shape);
     for (const cell of destCells) {
       this.grid[cell.y][cell.x].occupied = true;
       this.grid[cell.y][cell.x].centerX = toX;
@@ -1265,22 +2333,166 @@ export class Engine {
       points.push({ x: posX, y: posY });
     }
 
-    // Draw trajectory line with dots
-    this.aimerGraphics.moveTo(points[0].x, points[0].y);
-    this.aimerGraphics.lineTo(points[0].x, points[0].y);
-    this.aimerGraphics.stroke({ width: 2, color: 0x00ffff, alpha: 0.8 });
-
+    // Draw trajectory with dots (Angry Birds style)
     for (let i = 0; i < points.length; i += 5) {
       const point = points[i];
-      this.aimerGraphics.circle(point.x, point.y, 2);
-      this.aimerGraphics.fill({ color: 0x00ffff, alpha: 0.6 });
+      // Draw white dot with black outline
+      this.aimerGraphics.circle(point.x, point.y, 4);
+      this.aimerGraphics.fill({ color: 0xffffff, alpha: 0.9 });
+      this.aimerGraphics.circle(point.x, point.y, 4);
+      this.aimerGraphics.stroke({ width: 2, color: 0x000000, alpha: 0.6 });
     }
 
-    // Draw line from sprite to mouse
+    // Draw line from sprite to mouse (drag direction indicator)
     const { gridX: mouseGridX, gridY: mouseGridY } = this.screenToGrid(mouseX, mouseY);
     const mouseWorld = this.gridToWorld(mouseGridX, mouseGridY);
     this.aimerGraphics.moveTo(spriteWorldPos.x, spriteWorldPos.y);
     this.aimerGraphics.lineTo(mouseWorld.x, mouseWorld.y);
-    this.aimerGraphics.stroke({ width: 1, color: 0xffff00, alpha: 0.5 });
+    this.aimerGraphics.stroke({ width: 3, color: 0xff0000, alpha: 0.8 });
   }
+
+  // Game management functions
+  
+  endGame(winnerName: string) {
+    if (this.gameOver) return; // Already ended
+    
+    this.gameOver = true;
+    this.winner = winnerName;
+    console.log(`${winnerName} wins!`);
+    
+    // Create game over overlay
+    this.showGameOver();
+  }
+  
+  showGameOver() {
+    if (!this.winner) return;
+    
+    // Create semi-transparent overlay
+    this.gameOverContainer = new Container();
+    
+    const overlay = new Graphics();
+    overlay.rect(0, 0, this.app.screen.width, this.app.screen.height);
+    overlay.fill({ color: 0x000000, alpha: 0.7 });
+    this.gameOverContainer.addChild(overlay);
+    
+    // Winner text
+    const winnerText = new Text({
+      text: `${this.winner} Wins!`,
+      style: {
+        fontFamily: 'Orbitron',
+        fontSize: 72,
+        fontWeight: 'bold',
+        fill: 0xFFD700,
+        stroke: { color: 0x000000, width: 6 },
+      }
+    });
+    winnerText.anchor.set(0.5);
+    winnerText.position.set(this.app.screen.width / 2, this.app.screen.height / 2 - 50);
+    this.gameOverContainer.addChild(winnerText);
+    
+    // Restart button
+    const buttonBg = new Graphics();
+    buttonBg.roundRect(-100, -30, 200, 60, 10);
+    buttonBg.fill({ color: 0x4CAF50 });
+    buttonBg.stroke({ width: 3, color: 0xFFFFFF });
+    buttonBg.position.set(this.app.screen.width / 2, this.app.screen.height / 2 + 80);
+    buttonBg.eventMode = 'static';
+    buttonBg.cursor = 'pointer';
+    
+    const buttonText = new Text({
+      text: 'Restart Game',
+      style: {
+        fontFamily: 'Orbitron',
+        fontSize: 32,
+        fontWeight: 'bold',
+        fill: 0xFFFFFF,
+      }
+    });
+    buttonText.anchor.set(0.5);
+    buttonBg.addChild(buttonText);
+    
+    buttonBg.on('pointerdown', () => {
+      window.location.reload();
+    });
+    
+    this.gameOverContainer.addChild(buttonBg);
+    this.uiContainer.addChild(this.gameOverContainer);
+  }
+  
+  endTurn() {
+    if (this.gameOver) return;
+    
+    // Switch player
+    this.currentPlayer = this.currentPlayer === 1 ? 2 : 1;
+    
+    // Reset energy to max capacity (based on solar panels)
+    this.playerEnergy[this.currentPlayer] = this.playerMaxEnergy[this.currentPlayer];
+    
+    // Add base ore income + ore from mines
+    const baseOreIncome = 50;
+    const orePerMine = 25;
+    const totalOreIncome = baseOreIncome + (this.playerMineCount[this.currentPlayer] * orePerMine);
+    this.playerOre[this.currentPlayer] += totalOreIncome;
+    
+    // Refill ammo for all turrets owned by current player
+    for (let y = 0; y < this.GRID_HEIGHT; y++) {
+      for (let x = 0; x < this.GRID_WIDTH; x++) {
+        const cell = this.grid[y][x];
+        if (cell.sprite && cell.sprite.owner === this.currentPlayer) {
+          const turret = cell.sprite as any;
+          if (turret.ammo !== undefined && turret.maxAmmo !== undefined && turret.ammoRegenRate !== undefined) {
+            turret.ammo = Math.min(turret.ammo + turret.ammoRegenRate, turret.maxAmmo);
+          }
+        }
+      }
+    }
+    
+    console.log(`Player ${this.currentPlayer}'s turn - Energy: ${this.playerEnergy[this.currentPlayer]}/${this.playerMaxEnergy[this.currentPlayer]}, Ore gained: ${totalOreIncome} (${baseOreIncome} base + ${this.playerMineCount[this.currentPlayer] * orePerMine} from mines)`);
+    this.updateGameInfo();
+  }
+  
+  updateGameInfo() {
+    if (!this.gameInfoText || !this.oreText || !this.energyText || !this.energyBarFill) return;
+    if (!this.player1HealthBarFill || !this.player2HealthBarFill) return;
+    if (!this.player1HealthText || !this.player2HealthText) return;
+    
+    // Update turn indicator
+    const playerColor = this.currentPlayer === 1 ? 0x4CAF50 : 0x2196F3;
+    this.gameInfoText.text = `Player ${this.currentPlayer}'s Turn`;
+    this.gameInfoText.style.fill = playerColor;
+    
+    // Update planet health bars
+    const player1Health = this.player1Base ? this.player1Base.health : 0;
+    const player2Health = this.player2Base ? this.player2Base.health : 0;
+    
+    // Player 1 health bar
+    const p1Percent = player1Health / 1000;
+    this.player1HealthBarFill.clear();
+    this.player1HealthBarFill.rect(0, 0, 200 * p1Percent, 20);
+    this.player1HealthBarFill.fill({ color: 0x4CAF50, alpha: 0.9 });
+    this.player1HealthText.text = `${player1Health}/1000`;
+    
+    // Player 2 health bar
+    const p2Percent = player2Health / 1000;
+    this.player2HealthBarFill.clear();
+    this.player2HealthBarFill.rect(0, 0, 200 * p2Percent, 20);
+    this.player2HealthBarFill.fill({ color: 0x2196F3, alpha: 0.9 });
+    this.player2HealthText.text = `${player2Health}/1000`;
+    
+    // Update ore text with current player's color
+    this.oreText.text = this.playerOre[this.currentPlayer].toString();
+    this.oreText.style.fill = playerColor;
+    
+    // Update energy text
+    this.energyText.text = `${this.playerEnergy[this.currentPlayer]}/${this.playerMaxEnergy[this.currentPlayer]}`;
+    this.energyText.style.fill = 0xFFFF00;
+    
+    // Update energy bar
+    const energyPercent = this.playerEnergy[this.currentPlayer] / this.playerMaxEnergy[this.currentPlayer];
+    this.energyBarFill.clear();
+    this.energyBarFill.rect(0, 0, 200 * energyPercent, 20);
+    this.energyBarFill.fill({ color: 0xFFFF00, alpha: 0.9 });
+  }
+
+  // Draw trajectory for gun firing (ignoring launch planet gravity)
 }

@@ -14,10 +14,15 @@ export abstract class GameSprite {
   maxHealth: number;
   radius: number;
   immutable: boolean;
+  shape: "circle" | "square"; // Determines if radius creates circle or square
+  owner: number; // 0 = neutral, 1 = player 1, 2 = player 2
   
   // Physics properties
   vx: number = 0;
   vy: number = 0;
+  
+  // Planet to ignore gravity from (for projectiles launched from planet guns)
+  ignorePlanetGravity?: { centerX: number; centerY: number; radius: number };
 
   constructor(
     display: Sprite | Container,
@@ -26,7 +31,9 @@ export abstract class GameSprite {
     health: number = 100,
     maxHealth: number = 100,
     radius: number = 0,
-    immutable: boolean = false
+    immutable: boolean = false,
+    shape: "circle" | "square" = "circle",
+    owner: number = 0
   ) {
     this.display = display;
     this.name = name;
@@ -35,6 +42,8 @@ export abstract class GameSprite {
     this.maxHealth = maxHealth;
     this.radius = radius;
     this.immutable = immutable;
+    this.shape = shape;
+    this.owner = owner;
   }
 
   // Called each engine tick with delta time and acceleration from gravity
@@ -42,6 +51,15 @@ export abstract class GameSprite {
 
   // Apply physics movement (called by sprites that should move)
   protected applyPhysics(delta: number, ax: number = 0, ay: number = 0) {
+    // Cap acceleration magnitude to prevent extreme forces near planets
+    const MAX_ACCELERATION = 20;
+    const accelMag = Math.sqrt(ax * ax + ay * ay);
+    if (accelMag > MAX_ACCELERATION) {
+      const scale = MAX_ACCELERATION / accelMag;
+      ax *= scale;
+      ay *= scale;
+    }
+
     // Apply acceleration from gravity (scaled by delta time)
     this.vx += ax * delta;
     this.vy += ay * delta;
@@ -75,7 +93,7 @@ export class BunnySprite extends GameSprite {
   constructor(texture: Texture) {
     const sprite = new Sprite(texture);
     sprite.anchor.set(0.5);
-    super(sprite, "Building", "Building", 100, 100, 0, false);
+    super(sprite, "Building", "Building", 100, 100, 0, false); // Back to radius 0
   }
 
   update(delta: number, ax: number = 0, ay: number = 0) {
@@ -85,15 +103,72 @@ export class BunnySprite extends GameSprite {
 }
 
 export class TurretSprite extends GameSprite {
+  ammo: number;
+  maxAmmo: number;
+  damage: number;
+  ammoRegenRate: number;
+  
   constructor(texture: Texture) {
     const sprite = new Sprite(texture);
     sprite.anchor.set(0.5);
-    super(sprite, "Turret", "Building", 200, 200, 1, false);
+    super(sprite, "Turret", "Weapon", 200, 200, 0, true, "square"); // Radius 0 + square = 2x2 (0 to 1 in both directions)
+    this.ammo = 3; // Start with 3 ammo
+    this.maxAmmo = 3; // Max ammo cap
+    this.damage = 200; // Missile damage
+    this.ammoRegenRate = 1; // Regenerate 1 ammo per turn
   }
 
   update(delta: number, ax: number = 0, ay: number = 0) {
-    // Turrets respond to gravity but don't rotate
-    this.applyPhysics(delta, ax, ay);
+    // Turrets don't move (immutable)
+    void delta; void ax; void ay;
+  }
+}
+
+export class LaserTurretSprite extends GameSprite {
+  ammo: number;
+  maxAmmo: number;
+  damage: number;
+  ammoRegenRate: number;
+  
+  constructor(texture: Texture) {
+    const sprite = new Sprite(texture);
+    sprite.anchor.set(0.5);
+    super(sprite, "Laser Turret", "Weapon", 150, 150, 0, true, "square"); // Radius 0 + square = 2x2
+    this.ammo = 6; // Start with 6 ammo
+    this.maxAmmo = 6; // Max ammo cap
+    this.damage = 75; // Laser damage
+    this.ammoRegenRate = 2; // Regenerate 2 ammo per turn
+  }
+
+  update(delta: number, ax: number = 0, ay: number = 0) {
+    // Laser turrets don't move (immutable)
+    void delta; void ax; void ay;
+  }
+}
+
+export class MineSprite extends GameSprite {
+  constructor(texture: Texture) {
+    const sprite = new Sprite(texture);
+    sprite.anchor.set(0.5);
+    super(sprite, "Mine", "Resource", 100, 100, 0, true, "square"); // Radius 0 + square = 2x2
+  }
+
+  update(delta: number, ax: number = 0, ay: number = 0) {
+    // Mines don't move (immutable)
+    void delta; void ax; void ay;
+  }
+}
+
+export class SolarPanelSprite extends GameSprite {
+  constructor(texture: Texture) {
+    const sprite = new Sprite(texture);
+    sprite.anchor.set(0.5);
+    super(sprite, "Solar Panel", "Resource", 80, 80, 0, true, "square"); // Radius 0 + square = 2x2
+  }
+
+  update(delta: number, ax: number = 0, ay: number = 0) {
+    // Solar panels don't move (immutable)
+    void delta; void ax; void ay;
   }
 }
 
@@ -168,7 +243,7 @@ export class PlanetSprite extends GameSprite {
       shield.anchor.set(0.5);
       shield.alpha = 0.3; // Make it transparent (30% opacity)
       // Scale shield larger to encompass structures between planet and shield
-      const shieldScale = (texture.width * 1.4) / shieldTexture.width;
+      const shieldScale = (texture.width * 2.0) / shieldTexture.width;
       shield.scale.set(shieldScale);
       shield.rotation = -initialRotation * 0.5; // Set initial shield rotation (opposite direction)
       container.addChild(shield);
@@ -286,7 +361,7 @@ export class GenericSprite extends GameSprite {
   }
 }
 
-export type SpriteKind = "bunny" | "turret" | "asteroid" | "blackhole" | "planet" | "generic";
+export type SpriteKind = "bunny" | "turret" | "laserTurret" | "mine" | "solarPanel" | "asteroid" | "blackhole" | "planet" | "generic";
 
 /**
  * Factory to create sprites of different kinds.
@@ -316,6 +391,27 @@ export function createSprite(
       throw new Error('createSprite("turret") requires options.texture');
     }
     return new TurretSprite(options.texture);
+  }
+  
+  if (kind === "laserTurret") {
+    if (!options || !options.texture) {
+      throw new Error('createSprite("laserTurret") requires options.texture');
+    }
+    return new LaserTurretSprite(options.texture);
+  }
+  
+  if (kind === "mine") {
+    if (!options || !options.texture) {
+      throw new Error('createSprite("mine") requires options.texture');
+    }
+    return new MineSprite(options.texture);
+  }
+  
+  if (kind === "solarPanel") {
+    if (!options || !options.texture) {
+      throw new Error('createSprite("solarPanel") requires options.texture');
+    }
+    return new SolarPanelSprite(options.texture);
   }
 
   if (kind === "asteroid") {
