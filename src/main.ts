@@ -22,6 +22,7 @@ import { Engine } from "./engine";
   const explosionTexture = await Assets.load("/assets/explosion.png");
   const mineTexture = await Assets.load("/assets/mine.png");
   const solarPanelTexture = await Assets.load("/assets/solar panel.png");
+  const domeShieldTexture = await Assets.load("/assets/dome shield.png");
   const missileTexture = await Assets.load("/assets/missile.png");
   const laserTexture = await Assets.load("/assets/laser.png");
   const oreIconTexture = await Assets.load("/assets/ore.png");
@@ -34,7 +35,7 @@ import { Engine } from "./engine";
   engine.generateWorld(asteroidTexture, planetTexture, shieldTexture, blackHoleTexture);
 
   // Initialize UI
-  engine.initToolbar(bunnyTexture, turretTexture, laserTurretTexture, mineTexture, solarPanelTexture, missileTexture, laserTexture, oreIconTexture, energyIconTexture);
+  engine.initToolbar(bunnyTexture, turretTexture, laserTurretTexture, mineTexture, solarPanelTexture, domeShieldTexture, missileTexture, laserTexture, oreIconTexture, energyIconTexture);
   engine.initTooltip();
   engine.setExplosionTexture(explosionTexture);
 

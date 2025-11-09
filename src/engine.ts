@@ -85,6 +85,12 @@ export class Engine {
   
   // Active projectiles (not in grid yet)
   private projectiles: GameSprite[] = [];
+  
+  // Particle trails
+  private particleTrails: Map<GameSprite, Graphics[]> = new Map();
+  
+  // Floating damage numbers
+  private damageTexts: { text: Text; life: number; vy: number }[] = [];
 
   // Sound manager
   private soundManager: SoundManager;
@@ -94,10 +100,14 @@ export class Engine {
   private winner: string | null = null;
   private currentPlayer = 1; // 1 or 2
   
+  // Screen shake
+  private shakeAmount = 0;
+  private shakeDecay = 0.9;
+  
   // New resource systems
-  private playerOre = [0, 500, 500]; // Ore for building
-  private playerEnergy = [0, 100, 100]; // Current energy
-  private playerMaxEnergy = [0, 100, 100]; // Max energy capacity
+  private playerOre = [0, 200, 200]; // Ore for building - reduced to encourage building mines
+  private playerEnergy = [0, 50, 50]; // Current energy - reduced to encourage building solar panels
+  private playerMaxEnergy = [0, 50, 50]; // Max energy capacity
   private playerMineCount = [0, 0, 0]; // Number of mines owned by each player
   private playerSolarCount = [0, 0, 0]; // Number of solar panels owned by each player
   
@@ -129,6 +139,15 @@ export class Engine {
   // New building textures
   private mineTexture: Texture | null = null;
   private solarPanelTexture: Texture | null = null;
+  private domeShieldTexture: Texture | null = null;
+  
+  // Main menu
+  private mainMenuContainer: Container | null = null;
+  private gameStarted: boolean = false;
+  
+  // AI mode
+  private isAIMode: boolean = false;
+  private aiThinkingDelay: number = 0;
 
   constructor(app: Application) {
     this.soundManager = new SoundManager();
@@ -198,7 +217,7 @@ export class Engine {
   }
 
   // Initialize toolbar with bunny, turret, and laser turret sprites
-  initToolbar(bunnyTexture: Texture, turretTexture: Texture, laserTurretTexture: Texture, mineTexture: Texture, solarPanelTexture: Texture, missileTexture: Texture, laserTexture: Texture, oreIconTexture: Texture, energyIconTexture: Texture) {
+  initToolbar(bunnyTexture: Texture, turretTexture: Texture, laserTurretTexture: Texture, mineTexture: Texture, solarPanelTexture: Texture, domeShieldTexture: Texture, missileTexture: Texture, laserTexture: Texture, oreIconTexture: Texture, energyIconTexture: Texture) {
     // Initialize tooltip first
     this.initTooltip();
     
@@ -207,6 +226,7 @@ export class Engine {
     this.gunTexture = laserTurretTexture; // Reuse gunTexture variable for laser turret
     this.mineTexture = mineTexture;
     this.solarPanelTexture = solarPanelTexture;
+    this.domeShieldTexture = domeShieldTexture;
     this.missileTexture = missileTexture;
     this.laserTexture = laserTexture;
     const BUNNY_TILES = 1;
@@ -217,7 +237,7 @@ export class Engine {
 
     // Toolbar background (wider to fit all sprites and trash)
     const toolbarBg = new Graphics();
-    toolbarBg.rect(0, 0, 550, 90);
+    toolbarBg.rect(0, 0, 630, 90);
     toolbarBg.fill({ color: 0x222222, alpha: 0.9 });
     toolbarBg.stroke({ width: 2, color: 0x666666 });
     this.toolbar.addChild(toolbarBg);
@@ -226,58 +246,140 @@ export class Engine {
     const bunnyScale = ((this.TILE_SIZE * BUNNY_TILES * 0.8) / Math.max(bunnyTexture.width, bunnyTexture.height));
     const toolbarBunny = new Sprite(bunnyTexture);
     toolbarBunny.anchor.set(0.5);
-    toolbarBunny.position.set(45, 45);
+    toolbarBunny.position.set(45, 35);
     toolbarBunny.scale.set(bunnyScale * 0.8);
     toolbarBunny.eventMode = "static";
     toolbarBunny.cursor = "pointer";
     this.toolbar.addChild(toolbarBunny);
+    
+    const bunnyLabel = new Text({
+      text: 'Bunny',
+      style: {
+        fontFamily: 'Orbitron',
+        fontSize: 10,
+        fill: 0xffffff,
+      }
+    });
+    bunnyLabel.anchor.set(0.5);
+    bunnyLabel.position.set(45, 70);
+    this.toolbar.addChild(bunnyLabel);
 
     // Turret sprite button (bigger, not rotated)
     const turretScale = ((this.TILE_SIZE * TURRET_TILES) / Math.max(turretTexture.width, turretTexture.height));
     const toolbarTurret = new Sprite(turretTexture);
     toolbarTurret.anchor.set(0.5);
-    toolbarTurret.position.set(125, 45);
+    toolbarTurret.position.set(125, 35);
     toolbarTurret.scale.set(turretScale * 0.8);
     toolbarTurret.eventMode = "static";
     toolbarTurret.cursor = "pointer";
     this.toolbar.addChild(toolbarTurret);
     
+    const turretLabel = new Text({
+      text: 'Missile',
+      style: {
+        fontFamily: 'Orbitron',
+        fontSize: 10,
+        fill: 0xffffff,
+      }
+    });
+    turretLabel.anchor.set(0.5);
+    turretLabel.position.set(125, 70);
+    this.toolbar.addChild(turretLabel);
+    
     // Laser Turret sprite button
     const laserTurretScale = ((this.TILE_SIZE * TURRET_TILES) / Math.max(laserTurretTexture.width, laserTurretTexture.height));
     const toolbarLaserTurret = new Sprite(laserTurretTexture);
     toolbarLaserTurret.anchor.set(0.5);
-    toolbarLaserTurret.position.set(205, 45);
+    toolbarLaserTurret.position.set(205, 35);
     toolbarLaserTurret.scale.set(laserTurretScale * 0.8);
     toolbarLaserTurret.eventMode = "static";
     toolbarLaserTurret.cursor = "pointer";
     this.toolbar.addChild(toolbarLaserTurret);
     
+    const laserLabel = new Text({
+      text: 'Laser',
+      style: {
+        fontFamily: 'Orbitron',
+        fontSize: 10,
+        fill: 0xffffff,
+      }
+    });
+    laserLabel.anchor.set(0.5);
+    laserLabel.position.set(205, 70);
+    this.toolbar.addChild(laserLabel);
+    
     // Mine sprite button
     const mineScale = ((this.TILE_SIZE * TURRET_TILES) / Math.max(mineTexture.width, mineTexture.height));
     const toolbarMine = new Sprite(mineTexture);
     toolbarMine.anchor.set(0.5);
-    toolbarMine.position.set(285, 45);
+    toolbarMine.position.set(285, 35);
     toolbarMine.scale.set(mineScale * 0.8);
     toolbarMine.eventMode = "static";
     toolbarMine.cursor = "pointer";
     this.toolbar.addChild(toolbarMine);
     
+    const mineLabel = new Text({
+      text: 'Mine',
+      style: {
+        fontFamily: 'Orbitron',
+        fontSize: 10,
+        fill: 0xffffff,
+      }
+    });
+    mineLabel.anchor.set(0.5);
+    mineLabel.position.set(285, 70);
+    this.toolbar.addChild(mineLabel);
+    
     // Solar Panel sprite button
     const solarScale = ((this.TILE_SIZE * TURRET_TILES) / Math.max(solarPanelTexture.width, solarPanelTexture.height));
     const toolbarSolar = new Sprite(solarPanelTexture);
     toolbarSolar.anchor.set(0.5);
-    toolbarSolar.position.set(365, 45);
+    toolbarSolar.position.set(365, 35);
     toolbarSolar.scale.set(solarScale * 0.8);
     toolbarSolar.eventMode = "static";
     toolbarSolar.cursor = "pointer";
     this.toolbar.addChild(toolbarSolar);
+    
+    const solarLabel = new Text({
+      text: 'Solar',
+      style: {
+        fontFamily: 'Orbitron',
+        fontSize: 10,
+        fill: 0xffffff,
+      }
+    });
+    solarLabel.anchor.set(0.5);
+    solarLabel.position.set(365, 70);
+    this.toolbar.addChild(solarLabel);
+    
+    // Dome Shield sprite button
+    const domeShieldScale = ((this.TILE_SIZE * TURRET_TILES) / Math.max(domeShieldTexture.width, domeShieldTexture.height));
+    const toolbarDomeShield = new Sprite(domeShieldTexture);
+    toolbarDomeShield.anchor.set(0.5);
+    toolbarDomeShield.position.set(445, 35);
+    toolbarDomeShield.scale.set(domeShieldScale * 0.8);
+    toolbarDomeShield.eventMode = "static";
+    toolbarDomeShield.cursor = "pointer";
+    this.toolbar.addChild(toolbarDomeShield);
+    
+    const domeShieldLabel = new Text({
+      text: 'Dome',
+      style: {
+        fontFamily: 'Orbitron',
+        fontSize: 10,
+        fill: 0xffffff,
+      }
+    });
+    domeShieldLabel.anchor.set(0.5);
+    domeShieldLabel.position.set(445, 70);
+    this.toolbar.addChild(domeShieldLabel);
 
     // Delete button (draggable X)
     this.trashCan = new Graphics();
     this.trashCan.rect(0, 0, 80, 80);
     this.trashCan.fill({ color: 0x880000, alpha: 0.8 });
     this.trashCan.stroke({ width: 2, color: 0xff0000 });
-    this.trashCan.position.set(460, 5);
+    this.trashCan.position.set(540, 5);
     this.trashCan.eventMode = 'static';
     this.trashCan.cursor = 'grab';
     this.toolbar.addChild(this.trashCan);
@@ -415,6 +517,21 @@ export class Engine {
       this.world.addChild(this.previewSprite);
     });
     
+    toolbarDomeShield.on("pointerdown", (e: any) => {
+      e.stopPropagation();
+      this.hideTooltip();
+      this.isDraggingFromToolbar = true;
+      this.selectedTexture = domeShieldTexture;
+      console.log("Selected DOME SHIELD from toolbar");
+      this.soundManager.play('pickup');
+
+      this.previewSprite = new Sprite(domeShieldTexture);
+      this.previewSprite.anchor.set(0.5);
+      this.previewSprite.alpha = 0.7;
+      this.previewSprite.scale.set(domeShieldScale);
+      this.world.addChild(this.previewSprite);
+    });
+    
     // Delete button drag handler
     this.trashCan.on("pointerdown", (e: any) => {
       e.stopPropagation();
@@ -462,7 +579,7 @@ export class Engine {
     
     // Player 1 health text
     this.player1HealthText = new Text({
-      text: '1000/1000',
+      text: '1200/1200',
       style: {
         fontFamily: 'Orbitron',
         fontSize: 14,
@@ -505,7 +622,7 @@ export class Engine {
     
     // Player 2 health text
     this.player2HealthText = new Text({
-      text: '1000/1000',
+      text: '1200/1200',
       style: {
         fontFamily: 'Orbitron',
         fontSize: 14,
@@ -634,55 +751,60 @@ export class Engine {
     this.infoPanelContainer = new Container();
     this.infoPanelContainer.visible = false;
     
-    // Background
-    const bg = new Graphics();
-    bg.rect(0, 0, 400, 450);
-    bg.fill({ color: 0x000000, alpha: 0.9 });
-    bg.stroke({ width: 3, color: 0x00FF00 });
-    this.infoPanelContainer.addChild(bg);
+    const boxWidth = 400;
+    const boxHeight = 600;
+    const gap = 20;
     
-    // Title
-    const title = new Text({
-      text: 'BUILDING INFO (Press I to close)',
+    // Left Box - Buildings
+    const leftBox = new Container();
+    
+    const leftBg = new Graphics();
+    leftBg.rect(0, 0, boxWidth, boxHeight);
+    leftBg.fill({ color: 0x000000, alpha: 0.9 });
+    leftBg.stroke({ width: 3, color: 0x00FF00 });
+    leftBox.addChild(leftBg);
+    
+    const leftTitle = new Text({
+      text: 'BUILDINGS',
       style: {
         fontFamily: 'Orbitron',
-        fontSize: 18,
+        fontSize: 20,
         fontWeight: 'bold',
         fill: 0x00FF00,
       }
     });
-    title.position.set(10, 10);
-    this.infoPanelContainer.addChild(title);
+    leftTitle.anchor.set(0.5, 0);
+    leftTitle.position.set(boxWidth / 2, 15);
+    leftBox.addChild(leftTitle);
     
-    // Building info text
-    const infoText = new Text({
+    const buildingsText = new Text({
       text: [
-        '',
-        'TURRET',
-        'Cost: 200 Ore + 30 Energy',
-        'Damage: 200',
-        'Ammo: 3 max, +1/turn',
-        'Click and drag to fire',
+        'MISSILE TURRET',
+        'Cost: 150 Ore + 20 Energy',
+        'Heavy kinetic payload.',
+        'Slow reload, devastating impact.',
+        'Dmg: 250 | Ammo: 1',
         '',
         'LASER TURRET',
-        'Cost: 300 Ore + 40 Energy',
-        'Damage: 75 (faster projectile)',
-        'Ammo: 6 max, +2/turn',
-        'Click and drag to fire',
+        'Cost: 100 Ore + 20 Energy',
+        'Rapid-fire energy weapon.',
+        'Lower damage, higher rate.',
+        'Dmg: 100 | Ammo: 3',
         '',
         'MINE',
-        'Cost: 150 Ore + 20 Energy',
-        'Generates +25 ore per turn',
+        'Cost: 100 Ore + 15 Energy',
+        'Extracts precious ore from',
+        'asteroids. +75 ore/turn',
         '',
         'SOLAR PANEL',
-        'Cost: 100 Ore + 15 Energy',
-        'Increases max energy by 50',
+        'Cost: 75 Ore + 10 Energy',
+        'Harvests stellar energy.',
+        'Max energy +50',
         '',
-        'CONTROLS:',
-        '- Left-click & drag to place/fire',
-        '- Drag X button to delete buildings',
-        '- Buildings must be in shield',
-        '- Press I to toggle this panel',
+        'DOME SHIELD',
+        'Cost: 75 Ore + 15 Energy',
+        'Defensive barrier. Absorbs',
+        'incoming fire. HP: 500',
       ].join('\n'),
       style: {
         fontFamily: 'Orbitron',
@@ -691,14 +813,72 @@ export class Engine {
         lineHeight: 20,
       }
     });
-    infoText.position.set(15, 45);
-    this.infoPanelContainer.addChild(infoText);
+    buildingsText.position.set(20, 60);
+    leftBox.addChild(buildingsText);
     
-    // Position in center of screen
-    this.infoPanelContainer.position.set(
-      (this.app.screen.width - 400) / 2,
-      (this.app.screen.height - 450) / 2
-    );
+    // Right Box - Controls
+    const rightBox = new Container();
+    
+    const rightBg = new Graphics();
+    rightBg.rect(0, 0, boxWidth, boxHeight);
+    rightBg.fill({ color: 0x000000, alpha: 0.9 });
+    rightBg.stroke({ width: 3, color: 0x00FF00 });
+    rightBox.addChild(rightBg);
+    
+    const rightTitle = new Text({
+      text: 'CONTROLS',
+      style: {
+        fontFamily: 'Orbitron',
+        fontSize: 20,
+        fontWeight: 'bold',
+        fill: 0x00FF00,
+      }
+    });
+    rightTitle.anchor.set(0.5, 0);
+    rightTitle.position.set(boxWidth / 2, 15);
+    rightBox.addChild(rightTitle);
+    
+    const controlsText = new Text({
+      text: [
+        'PLACEMENT',
+        '• Click toolbar item to select',
+        '• Click grid to place building',
+        '• Must be inside your shield',
+        '  (glowing atmosphere)',
+        '',
+        'COMBAT',
+        '• Click & drag from turret',
+        '  to aim and fire',
+        '• Weapons use 20 energy',
+        '• Ammo regenerates per turn',
+        '',
+        'NAVIGATION',
+        '• Mouse wheel to zoom',
+        '• Click-drag to pan camera',
+        '• Press I to toggle this info',
+        '',
+        'TURNS',
+        '• Click "End Turn" to switch',
+        '• Energy resets each turn',
+        '• Ore accumulates',
+      ].join('\n'),
+      style: {
+        fontFamily: 'Orbitron',
+        fontSize: 14,
+        fill: 0xFFFFFF,
+        lineHeight: 22,
+      }
+    });
+    controlsText.position.set(20, 60);
+    rightBox.addChild(controlsText);
+    
+    // Position boxes side by side
+    const totalWidth = boxWidth * 2 + gap;
+    leftBox.position.set((this.app.screen.width - totalWidth) / 2, (this.app.screen.height - boxHeight) / 2);
+    rightBox.position.set((this.app.screen.width - totalWidth) / 2 + boxWidth + gap, (this.app.screen.height - boxHeight) / 2);
+    
+    this.infoPanelContainer.addChild(leftBox);
+    this.infoPanelContainer.addChild(rightBox);
     
     this.uiContainer.addChild(this.infoPanelContainer);
     
@@ -817,7 +997,8 @@ export class Engine {
         const dx = x - planet.centerX;
         const dy = y - planet.centerY;
         const distance = Math.sqrt(dx * dx + dy * dy);
-        if (distance < this.shieldRadius) {
+        // Add asteroid radius to shield radius to ensure no overlap
+        if (distance < this.shieldRadius + ASTEROID_RADIUS) {
           tooCloseToShield = true;
           break;
         }
@@ -840,8 +1021,8 @@ export class Engine {
 
         this.placeSprite(x, y, asteroid);
         
-        // Create weak gravity field for asteroid
-        applyGravityField(this.grid, x, y, 10, 0.1);
+        // Create stronger gravity field for asteroid to affect projectiles more
+        applyGravityField(this.grid, x, y, 15, 0.35);
         
         placed++;
       }
@@ -862,7 +1043,8 @@ export class Engine {
           const dx = x - planet.centerX;
           const dy = y - planet.centerY;
           const distance = Math.sqrt(dx * dx + dy * dy);
-          if (distance < this.shieldRadius) {
+          // Add black hole radius to shield radius to ensure no overlap
+          if (distance < this.shieldRadius + BLACK_HOLE_RADIUS) {
             tooCloseToShield = true;
             break;
           }
@@ -909,6 +1091,406 @@ export class Engine {
   // Set explosion texture for creating explosion sprites
   setExplosionTexture(texture: Texture) {
     this.explosionTexture = texture;
+  }
+  
+  // Create and show main menu
+  showMainMenu() {
+    this.mainMenuContainer = new Container();
+    this.uiContainer.addChild(this.mainMenuContainer);
+    
+    // Fully opaque background overlay
+    const overlay = new Graphics();
+    overlay.rect(0, 0, this.app.screen.width, this.app.screen.height);
+    overlay.fill({ color: 0x000000, alpha: 1.0 });
+    this.mainMenuContainer.addChild(overlay);
+    
+    // Title
+    const title = new Text({
+      text: 'STELLAR SPITE',
+      style: {
+        fontFamily: 'Orbitron',
+        fontSize: 72,
+        fill: 0xffffff,
+        stroke: { color: 0x00ffff, width: 4 },
+        align: 'center',
+      }
+    });
+    title.anchor.set(0.5);
+    title.position.set(this.app.screen.width / 2, 150);
+    this.mainMenuContainer.addChild(title);
+    
+    // Subtitle
+    const subtitle = new Text({
+      text: 'Turn-Based Space Combat',
+      style: {
+        fontFamily: 'Orbitron',
+        fontSize: 24,
+        fill: 0x00ffff,
+        align: 'center',
+      }
+    });
+    subtitle.anchor.set(0.5);
+    subtitle.position.set(this.app.screen.width / 2, 230);
+    this.mainMenuContainer.addChild(subtitle);
+    
+    // Play Button
+    const playButton = this.createMenuButton('LOCAL MULTIPLAYER', this.app.screen.width / 2, 320, () => {
+      this.isAIMode = false;
+      this.showStoryScreen();
+    });
+    this.mainMenuContainer.addChild(playButton);
+    
+    // AI Button
+    const aiButton = this.createMenuButton('VS AI', this.app.screen.width / 2, 420, () => {
+      this.isAIMode = true;
+      this.showStoryScreen();
+    });
+    this.mainMenuContainer.addChild(aiButton);
+    
+    // Instructions Button
+    const instructionsButton = this.createMenuButton('HOW TO PLAY', this.app.screen.width / 2, 520, () => {
+      this.showInstructions();
+    });
+    this.mainMenuContainer.addChild(instructionsButton);
+  }
+  
+  // Helper to create menu buttons
+  private createMenuButton(text: string, x: number, y: number, onClick: () => void): Container {
+    const button = new Container();
+    button.position.set(x, y);
+    
+    const bg = new Graphics();
+    bg.rect(-200, -35, 400, 70);
+    bg.fill({ color: 0x003366, alpha: 0.8 });
+    bg.stroke({ width: 3, color: 0x00ffff });
+    button.addChild(bg);
+    
+    const label = new Text({
+      text: text,
+      style: {
+        fontFamily: 'Orbitron',
+        fontSize: 28,
+        fill: 0xffffff,
+      }
+    });
+    label.anchor.set(0.5);
+    button.addChild(label);
+    
+    button.eventMode = 'static';
+    button.cursor = 'pointer';
+    
+    button.on('pointerover', () => {
+      bg.clear();
+      bg.rect(-200, -35, 400, 70);
+      bg.fill({ color: 0x0066cc, alpha: 1 });
+      bg.stroke({ width: 3, color: 0x00ffff });
+      label.style.fill = 0x00ffff;
+    });
+    
+    button.on('pointerout', () => {
+      bg.clear();
+      bg.rect(-200, -35, 400, 70);
+      bg.fill({ color: 0x003366, alpha: 0.8 });
+      bg.stroke({ width: 3, color: 0x00ffff });
+      label.style.fill = 0xffffff;
+    });
+    
+    button.on('pointerdown', onClick);
+    
+    return button;
+  }
+  
+  // Show humorous story screen before starting game
+  private showStoryScreen() {
+    const storyContainer = new Container();
+    this.uiContainer.addChild(storyContainer);
+    
+    // Full opacity background
+    const overlay = new Graphics();
+    overlay.rect(0, 0, this.app.screen.width, this.app.screen.height);
+    overlay.fill({ color: 0x000000, alpha: 1.0 });
+    storyContainer.addChild(overlay);
+    
+    // Story panel
+    const panelWidth = 750;
+    const panelHeight = 600;
+    const panelX = (this.app.screen.width - panelWidth) / 2;
+    const panelY = (this.app.screen.height - panelHeight) / 2;
+    
+    const panel = new Graphics();
+    panel.rect(0, 0, panelWidth, panelHeight);
+    panel.fill({ color: 0x001122, alpha: 1 });
+    panel.stroke({ width: 4, color: 0x00ffff });
+    panel.position.set(panelX, panelY);
+    storyContainer.addChild(panel);
+    
+    // Title
+    const title = new Text({
+      text: 'THE GREAT SPACE FEUD',
+      style: {
+        fontFamily: 'Orbitron',
+        fontSize: 36,
+        fill: 0x00ffff,
+        fontWeight: 'bold',
+      }
+    });
+    title.anchor.set(0.5, 0);
+    title.position.set(panelWidth / 2, 30);
+    panel.addChild(title);
+    
+    // Story text
+    const story = new Text({
+      text: [
+        'INCIDENT REPORT #2157-TH',
+        '',
+        'Subject: Neighborly Dispute',
+        '',
+        'They said moving to space would mean',
+        'peace and quiet. They were wrong.',
+        '',
+        'Someone played their music too loud.',
+        'Someone else refused to return a',
+        'borrowed cup of antimatter.',
+        '',
+        'Words were exchanged. Lawyers were',
+        'hired. Orbital cannons were built.',
+        '',
+        'Now it\'s come to this: two fortresses,',
+        'infinite pettiness, zero chill.',
+        '',
+        '',
+        '— Galactic Conflict Resolution Dept.',
+      ].join('\n'),
+      style: {
+        fontFamily: 'Orbitron',
+        fontSize: 14,
+        fill: 0xffffff,
+        align: 'left',
+        lineHeight: 21,
+      }
+    });
+    story.position.set(50, 90);
+    panel.addChild(story);
+    
+    // Begin button
+    const beginButton = this.createMenuButton('ENGAGE IN PETTINESS', panelWidth / 2, panelHeight - 60, () => {
+      this.uiContainer.removeChild(storyContainer);
+      this.startGame();
+    });
+    panel.addChild(beginButton);
+  }
+  
+  // Start the actual game
+  private startGame() {
+    if (this.mainMenuContainer) {
+      this.uiContainer.removeChild(this.mainMenuContainer);
+      this.mainMenuContainer = null;
+    }
+    this.gameStarted = true;
+    
+    // Make game elements visible
+    this.world.visible = true;
+    this.toolbar.visible = true;
+    if (this.gameInfoText) this.gameInfoText.visible = true;
+    if (this.oreText) this.oreText.visible = true;
+    if (this.energyText) this.energyText.visible = true;
+    if (this.energyBarBg) this.energyBarBg.visible = true;
+    if (this.energyBarFill) this.energyBarFill.visible = true;
+    if (this.player1HealthText) this.player1HealthText.visible = true;
+    if (this.player2HealthText) this.player2HealthText.visible = true;
+    if (this.player1HealthBarBg) this.player1HealthBarBg.visible = true;
+    if (this.player1HealthBarFill) this.player1HealthBarFill.visible = true;
+    if (this.player2HealthBarBg) this.player2HealthBarBg.visible = true;
+    if (this.player2HealthBarFill) this.player2HealthBarFill.visible = true;
+    if (this.endTurnButton) this.endTurnButton.visible = true;
+    if (this.endTurnText) this.endTurnText.visible = true;
+  }
+  
+  // Show instructions overlay
+  private showInstructions() {
+    const instructionsContainer = new Container();
+    this.uiContainer.addChild(instructionsContainer);
+    
+    // Semi-transparent background
+    const overlay = new Graphics();
+    overlay.rect(0, 0, this.app.screen.width, this.app.screen.height);
+    overlay.fill({ color: 0x000000, alpha: 0.9 });
+    instructionsContainer.addChild(overlay);
+    
+    // Content panel
+    const panelWidth = 800;
+    const panelHeight = 600;
+    const panelX = (this.app.screen.width - panelWidth) / 2;
+    const panelY = (this.app.screen.height - panelHeight) / 2;
+    
+    const panel = new Graphics();
+    panel.rect(0, 0, panelWidth, panelHeight);
+    panel.fill({ color: 0x001122, alpha: 1 });
+    panel.stroke({ width: 3, color: 0x00ffff });
+    panel.position.set(panelX, panelY);
+    instructionsContainer.addChild(panel);
+    
+    // Title
+    const title = new Text({
+      text: 'HOW TO PLAY',
+      style: {
+        fontFamily: 'Orbitron',
+        fontSize: 42,
+        fill: 0x00ffff,
+        align: 'center',
+      }
+    });
+    title.anchor.set(0.5, 0);
+    title.position.set(this.app.screen.width / 2, panelY + 20);
+    instructionsContainer.addChild(title);
+    
+    // Scrollable content area
+    const scrollAreaY = panelY + 80;
+    const scrollAreaHeight = panelHeight - 160; // Leave room for title and button
+    
+    // Create mask for scroll area
+    const scrollMask = new Graphics();
+    scrollMask.rect(panelX + 20, scrollAreaY, panelWidth - 40, scrollAreaHeight);
+    scrollMask.fill({ color: 0xffffff });
+    instructionsContainer.addChild(scrollMask);
+    
+    // Scrollable container
+    const scrollContainer = new Container();
+    scrollContainer.position.set(panelX + 50, scrollAreaY);
+    scrollContainer.mask = scrollMask;
+    instructionsContainer.addChild(scrollContainer);
+    
+    // Instructions text
+    const instructions = new Text({
+      text: [
+        'THE STORY',
+        'Two rival planets compete for dominance in a resource-scarce sector.',
+        'Build defenses, gather resources, and destroy the enemy planet to win!',
+        '',
+        'OBJECTIVE',
+        '• Destroy the enemy planet (1200 HP) to win',
+        '• Protect your own planet from destruction',
+        '',
+        'RESOURCES',
+        '• ORE: Used to build structures. Accumulates each turn.',
+        '  - Start with 600 ore',
+        '  - Mines generate +75 ore per turn',
+        '• ENERGY: Powers your buildings. Resets each turn.',
+        '  - Start with 100 energy per turn',
+        '  - Solar Panels increase max energy by +50',
+        '  - Weapons consume 15 energy per shot',
+        '',
+        'BUILDINGS (Must be placed within your shield)',
+        '• MISSILE TURRET: 150 ore + 20 energy - Heavy damage (250)',
+        '• LASER TURRET: 100 ore + 20 energy - Fast damage (100)',
+        '• MINE: 100 ore + 15 energy - Generates +75 ore/turn',
+        '• SOLAR PANEL: 75 ore + 10 energy - Increases max energy',
+        '• DOME SHIELD: 75 ore + 15 energy - 500 HP defensive wall',
+        '',
+        'COMBAT',
+        '• Click and drag from your turrets to aim and fire',
+        '• Missiles: 1 ammo max, +1 per turn',
+        '• Lasers: 3 ammo max, +1 per turn',
+        '• All weapons consume 15 energy per shot',
+        '',
+        'CONTROLS',
+        '• Click toolbar items to select, then click grid to place',
+        '• Drag buildings to trash can to delete',
+        '• Press "End Turn" when done building/attacking',
+        '• Press "I" key to view detailed building stats',
+        '• Mouse wheel to zoom, click-drag to pan',
+        '',
+        'TIPS',
+        '• Balance offense and resource generation',
+        '• Solar panels provide more energy for multiple shots per turn',
+        '• Mines pay for themselves over time',
+        '• Use dome shields to protect key buildings from enemy fire',
+        '• Protect your buildings - they can be destroyed!',
+      ].join('\n'),
+      style: {
+        fontFamily: 'Orbitron',
+        fontSize: 14,
+        fill: 0xffffff,
+        lineHeight: 22,
+      }
+    });
+    scrollContainer.addChild(instructions);
+    
+    // Scroll functionality
+    let scrollY = 0;
+    const maxScroll = Math.max(0, instructions.height - scrollAreaHeight);
+    
+    // Scrollbar background
+    const scrollbarWidth = 10;
+    const scrollbarX = panelX + panelWidth - 30;
+    const scrollbarBg = new Graphics();
+    scrollbarBg.rect(scrollbarX, scrollAreaY, scrollbarWidth, scrollAreaHeight);
+    scrollbarBg.fill({ color: 0x003344, alpha: 0.8 });
+    instructionsContainer.addChild(scrollbarBg);
+    
+    // Scrollbar handle
+    const scrollbarHandle = new Graphics();
+    const handleHeight = Math.max(40, scrollAreaHeight * (scrollAreaHeight / instructions.height));
+    scrollbarHandle.rect(scrollbarX, scrollAreaY, scrollbarWidth, handleHeight);
+    scrollbarHandle.fill({ color: 0x00ffff, alpha: 0.9 });
+    scrollbarHandle.eventMode = 'static';
+    scrollbarHandle.cursor = 'pointer';
+    instructionsContainer.addChild(scrollbarHandle);
+    
+    // Update scrollbar position function
+    const updateScrollbar = () => {
+      const scrollPercent = maxScroll > 0 ? scrollY / maxScroll : 0;
+      const handleY = scrollAreaY + scrollPercent * (scrollAreaHeight - handleHeight);
+      scrollbarHandle.y = handleY - scrollAreaY;
+    };
+    
+    // Make scrollbar draggable
+    let isDraggingScrollbar = false;
+    let dragStartY = 0;
+    let scrollStartY = 0;
+    
+    scrollbarHandle.on('pointerdown', (event: any) => {
+      isDraggingScrollbar = true;
+      dragStartY = event.global.y;
+      scrollStartY = scrollY;
+      event.stopPropagation();
+    });
+    
+    const onScrollbarDrag = (event: any) => {
+      if (!isDraggingScrollbar) return;
+      
+      const deltaY = event.global.y - dragStartY;
+      const scrollDelta = (deltaY / (scrollAreaHeight - handleHeight)) * maxScroll;
+      scrollY = Math.max(0, Math.min(maxScroll, scrollStartY + scrollDelta));
+      instructions.y = -scrollY;
+      updateScrollbar();
+    };
+    
+    const onScrollbarDragEnd = () => {
+      isDraggingScrollbar = false;
+    };
+    
+    this.app.stage.on('pointermove', onScrollbarDrag);
+    this.app.stage.on('pointerup', onScrollbarDragEnd);
+    this.app.stage.on('pointerupoutside', onScrollbarDragEnd);
+    
+    // Mouse wheel scrolling for instructions
+    const scrollHandler = (event: WheelEvent) => {
+      event.preventDefault();
+      scrollY += event.deltaY * 0.5;
+      scrollY = Math.max(0, Math.min(maxScroll, scrollY));
+      instructions.y = -scrollY;
+      updateScrollbar();
+    };
+    
+    window.addEventListener('wheel', scrollHandler, { passive: false });
+    
+    // Back button
+    const backButton = this.createMenuButton('BACK TO MENU', this.app.screen.width / 2, panelY + panelHeight - 50, () => {
+      window.removeEventListener('wheel', scrollHandler);
+      this.uiContainer.removeChild(instructionsContainer);
+    });
+    instructionsContainer.addChild(backButton);
   }
 
   // Show tooltip at cursor position with sprite info
@@ -1064,6 +1646,26 @@ export class Engine {
   }
 
   start() {
+    // Hide game elements initially
+    this.world.visible = false;
+    this.toolbar.visible = false;
+    if (this.gameInfoText) this.gameInfoText.visible = false;
+    if (this.oreText) this.oreText.visible = false;
+    if (this.energyText) this.energyText.visible = false;
+    if (this.energyBarBg) this.energyBarBg.visible = false;
+    if (this.energyBarFill) this.energyBarFill.visible = false;
+    if (this.player1HealthText) this.player1HealthText.visible = false;
+    if (this.player2HealthText) this.player2HealthText.visible = false;
+    if (this.player1HealthBarBg) this.player1HealthBarBg.visible = false;
+    if (this.player1HealthBarFill) this.player1HealthBarFill.visible = false;
+    if (this.player2HealthBarBg) this.player2HealthBarBg.visible = false;
+    if (this.player2HealthBarFill) this.player2HealthBarFill.visible = false;
+    if (this.endTurnButton) this.endTurnButton.visible = false;
+    if (this.endTurnText) this.endTurnText.visible = false;
+    
+    // Show main menu
+    this.showMainMenu();
+    
     // Start background music
     this.soundManager.playBackgroundMusic();
 
@@ -1086,6 +1688,7 @@ export class Engine {
       (this.app as any).canvas ?? (this.app.renderer as any).view ?? (this.app as any).view;
 
     canvas.addEventListener("mousedown", (e: MouseEvent) => {
+      if (!this.gameStarted) return; // Ignore input until game starts
       if (!this.isDraggingFromToolbar) {
         const { gridX, gridY } = this.screenToGrid(e.clientX, e.clientY);
         
@@ -1154,6 +1757,7 @@ export class Engine {
     });
 
     canvas.addEventListener("mouseup", (e: MouseEvent) => {
+      if (!this.gameStarted) return; // Ignore input until game starts
       if (this.gameOver) {
         // Allow dragging camera even when game is over, but prevent other actions
         this.isDragging = false;
@@ -1178,7 +1782,7 @@ export class Engine {
         // Check if launching from a turret (fire projectile) or launching a bunny
         if (this.launchSprite.type === "Weapon") {
           // Check if player has energy remaining
-          const energyCost = 20;
+          const energyCost = 15; // Reduced for faster games
           if (this.playerEnergy[this.currentPlayer] < energyCost) {
             console.log("Not enough energy to fire!");
             this.soundManager.play('invalidPlacement');
@@ -1230,10 +1834,14 @@ export class Engine {
             // Store reference to firing turret and damage
             (projectile as any).firingTurret = this.launchSprite;
             (projectile as any).damage = turret.damage || 50; // Use turret's damage value
+            (projectile as any).isLaser = isLaserTurret; // Track projectile type for particle effects
             
             // Add to world and projectiles array (will be added to grid when it moves)
             this.world.addChild(projectile.getDisplay());
             this.projectiles.push(projectile);
+            
+            // Create particle trail for this projectile
+            this.particleTrails.set(projectile, []);
             
             // Decrement turret ammo
             if (turret.ammo !== undefined) {
@@ -1272,8 +1880,8 @@ export class Engine {
           
           if (isTurret) {
             // Turret placement - fires bunny projectiles
-            const turretCost = 200;
-            const turretEnergyCost = 30;
+            const turretCost = 150; // Reduced for faster games
+            const turretEnergyCost = 20; // Reduced for faster games
             
             if (this.playerOre[this.currentPlayer] < turretCost) {
               console.log("Not enough ore to buy turret!");
@@ -1293,14 +1901,25 @@ export class Engine {
               
               if (this.canPlaceInRadius(gridX, gridY, sprite.radius)) {
                 const spriteScale = ((this.TILE_SIZE * TURRET_TILES) / Math.max(this.selectedTexture.width, this.selectedTexture.height));
-                (sprite.getDisplay() as Sprite).scale.set(spriteScale);
+                const spriteDisplay = sprite.getDisplay() as Sprite;
+                spriteDisplay.scale.set(spriteScale);
+                
+                // Flip turret if on right half of screen
+                if (gridX > this.GRID_WIDTH / 2) {
+                  spriteDisplay.scale.x = -spriteScale;
+                }
 
-                this.placeSprite(gridX, gridY, sprite);
-                this.playerOre[this.currentPlayer] -= turretCost;
-                this.playerEnergy[this.currentPlayer] -= turretEnergyCost;
-                this.updateGameInfo();
-                this.soundManager.play('placeBuilding');
-                console.log(`Placed turret at grid (${gridX}, ${gridY}) with radius ${sprite.radius}`);
+                const placed = this.placeSprite(gridX, gridY, sprite);
+                if (placed) {
+                  this.playerOre[this.currentPlayer] -= turretCost;
+                  this.playerEnergy[this.currentPlayer] -= turretEnergyCost;
+                  this.updateGameInfo();
+                  this.soundManager.play('placeBuilding');
+                  console.log(`Placed turret at grid (${gridX}, ${gridY}) with radius ${sprite.radius}`);
+                } else {
+                  this.soundManager.play('invalidPlacement');
+                  console.log("Cannot place turret - placeSprite failed");
+                }
               } else {
                 this.soundManager.play('invalidPlacement');
                 console.log("Cannot place turret - cells occupied or out of bounds");
@@ -1308,8 +1927,8 @@ export class Engine {
             }
           } else if (isLaserTurret) {
             // Laser Turret placement
-            const laserTurretCost = 300;
-            const laserTurretEnergyCost = 40;
+            const laserTurretCost = 100; // Reduced for faster games
+            const laserTurretEnergyCost = 20; // Reduced for faster games
             
             if (this.playerOre[this.currentPlayer] < laserTurretCost) {
               console.log("Not enough ore to buy laser turret!");
@@ -1329,14 +1948,25 @@ export class Engine {
               
               if (this.canPlaceInRadius(gridX, gridY, sprite.radius)) {
                 const spriteScale = ((this.TILE_SIZE * TURRET_TILES) / Math.max(this.selectedTexture.width, this.selectedTexture.height));
-                (sprite.getDisplay() as Sprite).scale.set(spriteScale);
+                const spriteDisplay = sprite.getDisplay() as Sprite;
+                spriteDisplay.scale.set(spriteScale);
+                
+                // Flip laser turret if on right half of screen
+                if (gridX > this.GRID_WIDTH / 2) {
+                  spriteDisplay.scale.x = -spriteScale;
+                }
 
-                this.placeSprite(gridX, gridY, sprite);
-                this.playerOre[this.currentPlayer] -= laserTurretCost;
-                this.playerEnergy[this.currentPlayer] -= laserTurretEnergyCost;
-                this.updateGameInfo();
-                this.soundManager.play('placeBuilding');
-                console.log(`Placed laser turret at grid (${gridX}, ${gridY}) with radius ${sprite.radius}`);
+                const placed = this.placeSprite(gridX, gridY, sprite);
+                if (placed) {
+                  this.playerOre[this.currentPlayer] -= laserTurretCost;
+                  this.playerEnergy[this.currentPlayer] -= laserTurretEnergyCost;
+                  this.updateGameInfo();
+                  this.soundManager.play('placeBuilding');
+                  console.log(`Placed laser turret at grid (${gridX}, ${gridY}) with radius ${sprite.radius}`);
+                } else {
+                  this.soundManager.play('invalidPlacement');
+                  console.log("Cannot place laser turret - placeSprite failed");
+                }
               } else {
                 this.soundManager.play('invalidPlacement');
                 console.log("Cannot place laser turret - cells occupied or out of bounds");
@@ -1344,8 +1974,8 @@ export class Engine {
             }
           } else if (this.selectedTexture === this.mineTexture) {
             // Mine placement - generates ore per turn
-            const mineCost = 150;
-            const mineEnergyCost = 20;
+            const mineCost = 100; // Reduced for faster games
+            const mineEnergyCost = 15; // Reduced for faster games
             
             if (this.playerOre[this.currentPlayer] < mineCost) {
               console.log("Not enough ore to buy mine!");
@@ -1367,13 +1997,18 @@ export class Engine {
                 const spriteScale = ((this.TILE_SIZE * TURRET_TILES) / Math.max(this.selectedTexture.width, this.selectedTexture.height));
                 (sprite.getDisplay() as Sprite).scale.set(spriteScale);
 
-                this.placeSprite(gridX, gridY, sprite);
-                this.playerOre[this.currentPlayer] -= mineCost;
-                this.playerEnergy[this.currentPlayer] -= mineEnergyCost;
-                this.playerMineCount[this.currentPlayer]++;
-                this.updateGameInfo();
-                this.soundManager.play('placeBuilding');
-                console.log(`Placed mine at grid (${gridX}, ${gridY})`);
+                const placed = this.placeSprite(gridX, gridY, sprite);
+                if (placed) {
+                  this.playerOre[this.currentPlayer] -= mineCost;
+                  this.playerEnergy[this.currentPlayer] -= mineEnergyCost;
+                  this.playerMineCount[this.currentPlayer]++;
+                  this.updateGameInfo();
+                  this.soundManager.play('placeBuilding');
+                  console.log(`Placed mine at grid (${gridX}, ${gridY})`);
+                } else {
+                  this.soundManager.play('invalidPlacement');
+                  console.log("Cannot place mine - placeSprite failed");
+                }
               } else {
                 this.soundManager.play('invalidPlacement');
                 console.log("Cannot place mine - cells occupied or out of bounds");
@@ -1381,8 +2016,8 @@ export class Engine {
             }
           } else if (this.selectedTexture === this.solarPanelTexture) {
             // Solar Panel placement - increases max energy
-            const solarCost = 100;
-            const solarEnergyCost = 15;
+            const solarCost = 75; // Reduced for faster games
+            const solarEnergyCost = 10; // Reduced for faster games
             
             if (this.playerOre[this.currentPlayer] < solarCost) {
               console.log("Not enough ore to buy solar panel!");
@@ -1404,17 +2039,88 @@ export class Engine {
                 const spriteScale = ((this.TILE_SIZE * TURRET_TILES) / Math.max(this.selectedTexture.width, this.selectedTexture.height));
                 (sprite.getDisplay() as Sprite).scale.set(spriteScale);
 
-                this.placeSprite(gridX, gridY, sprite);
-                this.playerOre[this.currentPlayer] -= solarCost;
-                this.playerEnergy[this.currentPlayer] -= solarEnergyCost;
-                this.playerSolarCount[this.currentPlayer]++;
-                this.playerMaxEnergy[this.currentPlayer] += 50; // +50 max energy per solar panel
-                this.updateGameInfo();
-                this.soundManager.play('placeBuilding');
-                console.log(`Placed solar panel at grid (${gridX}, ${gridY})`);
+                const placed = this.placeSprite(gridX, gridY, sprite);
+                if (placed) {
+                  this.playerOre[this.currentPlayer] -= solarCost;
+                  this.playerEnergy[this.currentPlayer] -= solarEnergyCost;
+                  this.playerSolarCount[this.currentPlayer]++;
+                  this.playerMaxEnergy[this.currentPlayer] += 50; // +50 max energy per solar panel
+                  this.updateGameInfo();
+                  this.soundManager.play('placeBuilding');
+                  console.log(`Placed solar panel at grid (${gridX}, ${gridY})`);
+                } else {
+                  this.soundManager.play('invalidPlacement');
+                  console.log("Cannot place solar panel - placeSprite failed");
+                }
               } else {
                 this.soundManager.play('invalidPlacement');
                 console.log("Cannot place solar panel - cells occupied or out of bounds");
+              }
+            }
+          } else if (this.selectedTexture === this.domeShieldTexture) {
+            // Dome Shield placement - defensive building with 500 HP
+            const domeShieldCost = 75; // Reduced for faster games
+            const domeShieldEnergyCost = 15; // Reduced for faster games
+            
+            if (this.playerOre[this.currentPlayer] < domeShieldCost) {
+              console.log("Not enough ore to buy dome shield!");
+              this.soundManager.play('invalidPlacement');
+            } else if (this.playerEnergy[this.currentPlayer] < domeShieldEnergyCost) {
+              console.log("Not enough energy to build dome shield!");
+              this.soundManager.play('invalidPlacement');
+            } else if (!this.isWithinPlayerShield(gridX, gridY)) {
+              console.log("Cannot place dome shield - must be within your shield!");
+              this.soundManager.play('invalidPlacement');
+            } else {
+              const sprite = createSprite("domeShield", {
+                texture: this.selectedTexture,
+                name: "Dome Shield",
+              });
+              sprite.owner = this.currentPlayer; // Set ownership
+              
+              // Calculate rotation to be tangential to player's planet
+              const playerBase = this.currentPlayer === 1 ? this.player1Base : this.player2Base;
+              let rotation = 0;
+              if (playerBase) {
+                const planetPos = playerBase.getDisplay().position;
+                const worldPos = this.gridToWorld(gridX, gridY);
+                
+                // Calculate angle from dome shield to planet center
+                const dx = worldPos.x - planetPos.x;
+                const dy = worldPos.y - planetPos.y;
+                const angleToCenter = Math.atan2(dy, dx);
+                
+                // Rotate to be tangential (perpendicular to radius)
+                // Add 90 degrees (PI/2) to make it tangent to the circle
+                rotation = angleToCenter + Math.PI / 2;
+              }
+              
+              // Store rotation in sprite for later cleanup/collision
+              sprite.rotation = rotation;
+              
+              if (this.canPlaceInRadius(gridX, gridY, sprite.radius, sprite.shape, sprite.width, sprite.height, rotation)) {
+                // For dome shield (8x2 rectangle), scale larger to cover diagonal rotation
+                // At 45° rotation, diagonal is sqrt(8^2 + 2^2) ≈ 8.25 tiles
+                // Scale to 10 tiles to ensure full coverage at all angles
+                const spriteScale = ((this.TILE_SIZE * 10) / Math.max(this.selectedTexture.width, this.selectedTexture.height));
+                const spriteDisplay = sprite.getDisplay() as Sprite;
+                spriteDisplay.scale.set(spriteScale);
+                spriteDisplay.rotation = rotation;
+
+                const placed = this.placeSprite(gridX, gridY, sprite, rotation);
+                if (placed) {
+                  this.playerOre[this.currentPlayer] -= domeShieldCost;
+                  this.playerEnergy[this.currentPlayer] -= domeShieldEnergyCost;
+                  this.updateGameInfo();
+                  this.soundManager.play('placeBuilding');
+                  console.log(`Placed dome shield at grid (${gridX}, ${gridY})`);
+                } else {
+                  this.soundManager.play('invalidPlacement');
+                  console.log("Cannot place dome shield - placeSprite failed");
+                }
+              } else {
+                this.soundManager.play('invalidPlacement');
+                console.log("Cannot place dome shield - cells occupied or out of bounds");
               }
             }
           } else {
@@ -1429,9 +2135,14 @@ export class Engine {
               const spriteScale = ((this.TILE_SIZE * SPRITE_TILES) / Math.max(this.selectedTexture.width, this.selectedTexture.height));
               (sprite.getDisplay() as Sprite).scale.set(spriteScale);
 
-              this.placeSprite(gridX, gridY, sprite);
-              this.soundManager.play('placeBuilding');
-              console.log(`Placed bunny at grid (${gridX}, ${gridY}) with radius ${sprite.radius}`);
+              const placed = this.placeSprite(gridX, gridY, sprite);
+              if (placed) {
+                this.soundManager.play('placeBuilding');
+                console.log(`Placed bunny at grid (${gridX}, ${gridY}) with radius ${sprite.radius}`);
+              } else {
+                this.soundManager.play('invalidPlacement');
+                console.log("Cannot place bunny - placeSprite failed");
+              }
             } else {
               this.soundManager.play('invalidPlacement');
               console.log("Cannot place bunny - cells occupied or out of bounds");
@@ -1510,6 +2221,7 @@ export class Engine {
     });
 
     canvas.addEventListener("mousemove", (e: MouseEvent) => {
+      if (!this.gameStarted) return; // Ignore input until game starts
       if (this.isDraggingDeleteButton) {
         // Move delete button with cursor
         const toolbarRelativeX = e.clientX - this.toolbar.position.x;
@@ -1565,8 +2277,31 @@ export class Engine {
         // Draw aimer trajectory
         this.drawTrajectory(e.clientX, e.clientY);
       } else if (this.isDragging) {
-        this.world.x = e.clientX - this.dragStart.x;
-        this.world.y = e.clientY - this.dragStart.y;
+        // Update world position with dragging
+        const newX = e.clientX - this.dragStart.x;
+        const newY = e.clientY - this.dragStart.y;
+        
+        // Apply constraints immediately to prevent panning outside grid
+        const gridPixelWidth = this.GRID_WIDTH * this.TILE_SIZE * this.zoom;
+        const gridPixelHeight = this.GRID_HEIGHT * this.TILE_SIZE * this.zoom;
+
+        const minX = this.app.screen.width - gridPixelWidth;
+        const maxX = 0;
+        const minY = this.app.screen.height - gridPixelHeight;
+        const maxY = 0;
+
+        const constrainedX = Math.max(minX, Math.min(maxX, newX));
+        const constrainedY = Math.max(minY, Math.min(maxY, newY));
+        
+        this.world.x = constrainedX;
+        this.world.y = constrainedY;
+        
+        // Update drag start if we hit a boundary to prevent jumping when zoom changes
+        if (constrainedX !== newX || constrainedY !== newY) {
+          this.dragStart.x = e.clientX - constrainedX;
+          this.dragStart.y = e.clientY - constrainedY;
+        }
+        
         this.hideTooltip();
       } else {
         // Show tooltip on hover for grid sprites
@@ -1663,8 +2398,16 @@ export class Engine {
     this.world.x = centerX - (centerX - this.world.x) * (this.zoom / prevZoom);
     this.world.y = centerY - (centerY - this.world.y) * (this.zoom / prevZoom);
     this.world.scale.set(this.zoom);
-
-    // Constrain panning to grid boundaries
+    
+    // AI thinking delay
+    if (this.aiThinkingDelay > 0) {
+      this.aiThinkingDelay--;
+      if (this.aiThinkingDelay === 0) {
+        this.executeAITurn();
+      }
+    }
+    
+    // Constrain panning to grid boundaries BEFORE applying shake
     const gridPixelWidth = this.GRID_WIDTH * this.TILE_SIZE * this.zoom;
     const gridPixelHeight = this.GRID_HEIGHT * this.TILE_SIZE * this.zoom;
 
@@ -1675,6 +2418,17 @@ export class Engine {
 
     this.world.x = Math.max(minX, Math.min(maxX, this.world.x));
     this.world.y = Math.max(minY, Math.min(maxY, this.world.y));
+    
+    // Apply screen shake on top of constrained position
+    if (this.shakeAmount > 0.1) {
+      const shakeX = (Math.random() - 0.5) * this.shakeAmount;
+      const shakeY = (Math.random() - 0.5) * this.shakeAmount;
+      this.world.x += shakeX;
+      this.world.y += shakeY;
+      this.shakeAmount *= this.shakeDecay;
+    } else {
+      this.shakeAmount = 0;
+    }
 
     if (prevZoom !== this.zoom) {
       this.renderer.setZoom(this.zoom);
@@ -1759,17 +2513,19 @@ export class Engine {
                     this.createExplosion(worldPos.x, worldPos.y, 1.0);
                     this.soundManager.play('explosion');
                     
-                    // Apply damage to the target (100 damage from bunny/turret projectile)
+                    // Apply damage to the target (10000 damage from bunny - dev tool!)
                     // Skip damage for black holes - they are invulnerable
                     let targetDestroyed = false;
                     if (targetSprite.name !== "Black Hole") {
-                      targetDestroyed = targetSprite.takeDamage(100);
+                      targetDestroyed = targetSprite.takeDamage(10000);
+                      // Show damage number
+                      this.showDamageNumber(worldPos.x, worldPos.y, 10000);
                     }
                     
                     // Remove the target if health reached 0
                     if (targetDestroyed) {
                       // Find the target's grid position
-                      const targetCells = this.getCellsInRadius(checkX, checkY, targetSprite.radius);
+                      const targetCells = this.getCellsInRadius(checkX, checkY, targetSprite.radius, targetSprite.shape, targetSprite.width, targetSprite.height, targetSprite.rotation);
                       for (const targetCell of targetCells) {
                         if (targetCell.x >= 0 && targetCell.x < this.GRID_WIDTH && 
                             targetCell.y >= 0 && targetCell.y < this.GRID_HEIGHT) {
@@ -1791,13 +2547,20 @@ export class Engine {
                         this.planets.splice(planetIndex, 1);
                       }
                       
+                      // Check win condition if a base planet was destroyed
+                      if (targetSprite === this.player1Base) {
+                        this.endGame("Player 2");
+                      } else if (targetSprite === this.player2Base) {
+                        this.endGame("Player 1");
+                      }
+                      
                       console.log(`${targetSprite.name} destroyed!`);
                     } else {
                       console.log(`${targetSprite.name} took 100 damage. Health: ${targetSprite.health}/${targetSprite.maxHealth}`);
                     }
                     
                     // Remove the moving sprite (projectile) - only clear cells that belong to this sprite
-                    const oldCells = this.getCellsInRadius(x, y, sprite.radius);
+                    const oldCells = this.getCellsInRadius(x, y, sprite.radius, sprite.shape, sprite.width, sprite.height, sprite.rotation);
                     for (const oldCell of oldCells) {
                       if (oldCell.x >= 0 && oldCell.x < this.GRID_WIDTH && 
                           oldCell.y >= 0 && oldCell.y < this.GRID_HEIGHT) {
@@ -1824,7 +2587,7 @@ export class Engine {
               // Update grid position if sprite has moved to a new cell
               if (currentGridX !== x || currentGridY !== y) {
                 // Clear old position
-                const oldCells = this.getCellsInRadius(x, y, sprite.radius);
+                const oldCells = this.getCellsInRadius(x, y, sprite.radius, sprite.shape, sprite.width, sprite.height, sprite.rotation);
                 for (const oldCell of oldCells) {
                   if (oldCell.x >= 0 && oldCell.x < this.GRID_WIDTH && 
                       oldCell.y >= 0 && oldCell.y < this.GRID_HEIGHT) {
@@ -1838,7 +2601,7 @@ export class Engine {
                 // Set new position (only if still in bounds)
                 if (currentGridX >= 0 && currentGridX < this.GRID_WIDTH && 
                     currentGridY >= 0 && currentGridY < this.GRID_HEIGHT) {
-                  const newCells = this.getCellsInRadius(currentGridX, currentGridY, sprite.radius);
+                  const newCells = this.getCellsInRadius(currentGridX, currentGridY, sprite.radius, sprite.shape, sprite.width, sprite.height, sprite.rotation);
                   for (const newCell of newCells) {
                     if (newCell.x >= 0 && newCell.x < this.GRID_WIDTH && 
                         newCell.y >= 0 && newCell.y < this.GRID_HEIGHT) {
@@ -1875,6 +2638,23 @@ export class Engine {
       }
     }
     
+    // Update and clean up damage numbers
+    for (let i = this.damageTexts.length - 1; i >= 0; i--) {
+      const dmg = this.damageTexts[i];
+      dmg.life--;
+      dmg.text.y += dmg.vy;
+      dmg.text.alpha = dmg.life / 60; // Fade out
+      
+      // Scale down slightly as it fades
+      const scaleProgress = dmg.life / 60;
+      dmg.text.scale.set(1.2 + (1 - scaleProgress) * 0.3); // Grows slightly as it fades
+      
+      if (dmg.life <= 0) {
+        this.world.removeChild(dmg.text);
+        this.damageTexts.splice(i, 1);
+      }
+    }
+    
     // Update projectiles that aren't in the grid yet
     for (let i = this.projectiles.length - 1; i >= 0; i--) {
       const projectile = this.projectiles[i];
@@ -1893,6 +2673,34 @@ export class Engine {
       
       // Update projectile physics
       projectile.update(time.deltaTime, ax, ay);
+      
+      // Add particle trail
+      const pos = projectile.getDisplay().position;
+      const isLaser = (projectile as any).isLaser;
+      const trail = this.particleTrails.get(projectile) || [];
+      
+      // Create particle
+      const particle = new Graphics();
+      particle.circle(0, 0, isLaser ? 3 : 4);
+      const particleColor = isLaser ? 0x00ffff : 0xff6600; // Cyan for lasers, orange for missiles
+      particle.fill({ color: particleColor, alpha: 0.8 });
+      particle.position.set(pos.x, pos.y);
+      this.world.addChild(particle);
+      trail.push(particle);
+      this.particleTrails.set(projectile, trail);
+      
+      // Limit trail length and fade old particles
+      if (trail.length > 15) {
+        const oldParticle = trail.shift();
+        if (oldParticle) {
+          this.world.removeChild(oldParticle);
+        }
+      }
+      
+      // Fade particles
+      trail.forEach((p, idx) => {
+        p.alpha = (idx / trail.length) * 0.8;
+      });
       
       // Add to grid once it starts moving away from turret
       const newGridX = Math.floor(projectile.getDisplay().position.x / this.TILE_SIZE);
@@ -1921,6 +2729,13 @@ export class Engine {
             this.createExplosion(projectileWorldPos.x, projectileWorldPos.y, 0.5);
             this.soundManager.play('explosion');
             
+            // Clean up particle trail
+            const trail = this.particleTrails.get(projectile);
+            if (trail) {
+              trail.forEach(p => this.world.removeChild(p));
+              this.particleTrails.delete(projectile);
+            }
+            
             // Remove projectile
             this.world.removeChild(projectile.getDisplay());
             this.projectiles.splice(i, 1);
@@ -1933,12 +2748,29 @@ export class Engine {
           // Collision! Deal damage to the sprite we hit
           const damage = (projectile as any).damage || 50; // Use projectile's stored damage
           hitSprite.health -= damage;
+          
+          // Show damage number
+          const hitWorldPos = projectile.getDisplay().position;
+          this.showDamageNumber(hitWorldPos.x, hitWorldPos.y, damage);
+          
           console.log(`Projectile hit ${hitSprite.name} for ${damage} damage (${hitSprite.health} HP remaining)`);
+          
+          // Update UI immediately if a planet was hit
+          if (hitSprite.name === "Player 1 Base" || hitSprite.name === "Player 2 Base") {
+            this.updateGameInfo();
+          }
           
           // Create explosion at projectile location
           const projectileWorldPos = projectile.getDisplay().position;
           this.createExplosion(projectileWorldPos.x, projectileWorldPos.y, 0.5);
           this.soundManager.play('explosion');
+          
+          // Clean up particle trail
+          const trail = this.particleTrails.get(projectile);
+          if (trail) {
+            trail.forEach(p => this.world.removeChild(p));
+            this.particleTrails.delete(projectile);
+          }
           
           // Remove projectile
           this.world.removeChild(projectile.getDisplay());
@@ -1961,6 +2793,13 @@ export class Engine {
       
       // Remove if out of bounds
       if (newGridX < 0 || newGridX >= this.GRID_WIDTH || newGridY < 0 || newGridY >= this.GRID_HEIGHT) {
+        // Clean up particle trail
+        const trail = this.particleTrails.get(projectile);
+        if (trail) {
+          trail.forEach(p => this.world.removeChild(p));
+          this.particleTrails.delete(projectile);
+        }
+        
         this.world.removeChild(projectile.getDisplay());
         this.projectiles.splice(i, 1);
       }
@@ -1993,13 +2832,59 @@ export class Engine {
   }
 
   // Helper to get all cells within a circular radius
-  getCellsInRadius(centerX: number, centerY: number, radius: number, shape: "circle" | "square" = "circle"): { x: number; y: number }[] {
+  getCellsInRadius(centerX: number, centerY: number, radius: number, shape: "circle" | "square" | "rectangle" = "circle", width?: number, height?: number, rotation?: number): { x: number; y: number }[] {
     const cells: { x: number; y: number }[] = [];
     
-    if (shape === "square") {
+    if (shape === "rectangle" && width !== undefined && height !== undefined) {
+      // Rectangle mode with dome shape: 
+      // For dome shields, create an arch pattern (wider at base, narrower at top)
+      const halfWidth = Math.floor(width / 2);
+      const halfHeight = Math.floor(height / 2);
+      
+      // If rotation is provided, rotate the rectangle cells
+      if (rotation !== undefined && rotation !== 0) {
+        const usedCells = new Set<string>();
+        for (let dy = -halfHeight; dy < height - halfHeight; dy++) {
+          // Calculate dome narrowing - top row is narrower
+          const rowFromBottom = dy + halfHeight; // 0 = bottom, height-1 = top
+          const narrowing = (rowFromBottom / (height - 1)) * 2; // 0 at bottom, 2 at top
+          const effectiveHalfWidth = Math.max(1, halfWidth - Math.floor(narrowing));
+          
+          for (let dx = -effectiveHalfWidth; dx < width - halfWidth - (halfWidth - effectiveHalfWidth); dx++) {
+            // Rotate the offset around the origin
+            const rotatedX = dx * Math.cos(rotation) - dy * Math.sin(rotation);
+            const rotatedY = dx * Math.sin(rotation) + dy * Math.cos(rotation);
+            
+            // Round to nearest grid cell
+            const cellX = centerX + Math.round(rotatedX);
+            const cellY = centerY + Math.round(rotatedY);
+            
+            // Use a Set to avoid duplicate cells
+            const key = `${cellX},${cellY}`;
+            if (!usedCells.has(key)) {
+              cells.push({ x: cellX, y: cellY });
+              usedCells.add(key);
+            }
+          }
+        }
+      } else {
+        // No rotation - dome-shaped horizontal rectangle
+        for (let dy = -halfHeight; dy < height - halfHeight; dy++) {
+          // Calculate dome narrowing - top row is narrower
+          const rowFromBottom = dy + halfHeight; // 0 = bottom, height-1 = top
+          const narrowing = (rowFromBottom / (height - 1)) * 2; // 0 at bottom, 2 at top
+          const effectiveHalfWidth = Math.max(1, halfWidth - Math.floor(narrowing));
+          
+          for (let dx = -effectiveHalfWidth; dx < width - halfWidth - (halfWidth - effectiveHalfWidth); dx++) {
+            cells.push({ x: centerX + dx, y: centerY + dy });
+          }
+        }
+      }
+    } else if (shape === "square") {
       // For square mode:
       // radius 0 = 2x2 square starting at (centerX, centerY)
       // radius 1 = 3x3 square centered on (centerX, centerY)
+      // radius 2 = 5x5 square centered on (centerX, centerY)
       if (radius === 0) {
         // 2x2 square: (x, y), (x+1, y), (x, y+1), (x+1, y+1)
         for (let dy = 0; dy <= 1; dy++) {
@@ -2030,8 +2915,10 @@ export class Engine {
   }
 
   // Check if all cells in radius are available
-  canPlaceInRadius(centerX: number, centerY: number, radius: number, shape: "circle" | "square" = "circle"): boolean {
-    const cells = this.getCellsInRadius(centerX, centerY, radius, shape);
+  canPlaceInRadius(centerX: number, centerY: number, radius: number, shape: "circle" | "square" | "rectangle" = "circle", width?: number, height?: number, rotation?: number): boolean {
+    const cells = this.getCellsInRadius(centerX, centerY, radius, shape, width, height, rotation);
+    console.log(`canPlaceInRadius at (${centerX}, ${centerY}) with shape=${shape}, cells=${cells.length}, rotation=${rotation}`);
+    
     for (const cell of cells) {
       if (
         cell.x < 0 ||
@@ -2039,9 +2926,11 @@ export class Engine {
         cell.y < 0 ||
         cell.y >= this.GRID_HEIGHT
       ) {
+        console.log(`  Cell (${cell.x}, ${cell.y}) out of bounds`);
         return false;
       }
       if (this.grid[cell.y][cell.x].occupied) {
+        console.log(`  Cell (${cell.x}, ${cell.y}) already occupied`);
         return false;
       }
     }
@@ -2059,16 +2948,28 @@ export class Engine {
     
     return distance <= this.shieldRadius;
   }
+  
+  // Check if position is within a specific player's shield
+  isPositionWithinShield(gridX: number, gridY: number, player: number): boolean {
+    const playerBase = player === 1 ? this.player1Base : this.player2Base;
+    if (!playerBase) return false;
+    
+    const dx = gridX - playerBase.centerX;
+    const dy = gridY - playerBase.centerY;
+    const distance = Math.sqrt(dx * dx + dy * dy);
+    
+    return distance <= this.shieldRadius;
+  }
 
   // Place sprite with radius occupation
-  placeSprite(gridX: number, gridY: number, sprite: GameSprite): boolean {
+  placeSprite(gridX: number, gridY: number, sprite: GameSprite, rotation?: number): boolean {
     console.log(`placeSprite called: gridX=${gridX}, gridY=${gridY}, sprite=${sprite.name}, radius=${sprite.radius}, shape=${sprite.shape}`);
-    if (!this.canPlaceInRadius(gridX, gridY, sprite.radius, sprite.shape)) {
+    if (!this.canPlaceInRadius(gridX, gridY, sprite.radius, sprite.shape, sprite.width, sprite.height, rotation)) {
       return false;
     }
 
     // Occupy all cells in radius
-    const cells = this.getCellsInRadius(gridX, gridY, sprite.radius, sprite.shape);
+    const cells = this.getCellsInRadius(gridX, gridY, sprite.radius, sprite.shape, sprite.width, sprite.height, rotation);
     console.log(`Occupying ${cells.length} cells for ${sprite.name} with radius ${sprite.radius} and shape ${sprite.shape}`);
     for (const cell of cells) {
       this.grid[cell.y][cell.x].occupied = true;
@@ -2247,6 +3148,9 @@ export class Engine {
       return;
     }
     
+    // Add screen shake based on explosion size
+    this.addScreenShake(scale * 10);
+    
     // Sprite sheet layout: 8 columns × 6 rows = 48 frames
     const cols = 8;
     const rows = 6;
@@ -2259,15 +3163,51 @@ export class Engine {
       this.explosionTexture,
       x,
       y,
-      scale,
+      scale * 1.5, // Make explosions 50% bigger
       48,         // totalFrames - 48 frame sprite sheet
       frameWidth, // frameWidth - calculated from texture
       frameHeight, // frameHeight - calculated from texture
       cols,       // framesPerRow - 8 columns
-      0.4         // animationSpeed - 24 fps (24 frames per second / 60 ticks per second = 0.4)
+      0.6         // animationSpeed - faster animation (increased from 0.4)
     );
     this.world.addChild(explosion.getDisplay());
     this.explosions.push(explosion);
+  }
+  
+  // Add screen shake effect
+  addScreenShake(amount: number) {
+    this.shakeAmount = Math.min(this.shakeAmount + amount, 50); // Cap at 50px
+  }
+  
+  // Show floating damage number
+  showDamageNumber(x: number, y: number, damage: number) {
+    const damageText = new Text({
+      text: `-${damage}`,
+      style: {
+        fontFamily: 'Orbitron',
+        fontSize: 56,
+        fontWeight: 'bold',
+        fill: 0xFFFF00, // Bright yellow - stands out against explosions
+        stroke: { color: 0x000000, width: 6 },
+        dropShadow: {
+          alpha: 1,
+          angle: Math.PI / 4,
+          blur: 6,
+          color: 0xFF0000,
+          distance: 4,
+        },
+      }
+    });
+    damageText.anchor.set(0.5);
+    damageText.position.set(x, y);
+    damageText.scale.set(1.2); // Start slightly bigger
+    this.world.addChild(damageText);
+    
+    this.damageTexts.push({
+      text: damageText,
+      life: 60, // 1 second at 60fps
+      vy: -2.5 // Float upward slightly faster
+    });
   }
 
   /**
@@ -2360,6 +3300,9 @@ export class Engine {
     this.winner = winnerName;
     console.log(`${winnerName} wins!`);
     
+    // Big screen shake for dramatic effect
+    this.addScreenShake(30);
+    
     // Create game over overlay
     this.showGameOver();
   }
@@ -2372,50 +3315,122 @@ export class Engine {
     
     const overlay = new Graphics();
     overlay.rect(0, 0, this.app.screen.width, this.app.screen.height);
-    overlay.fill({ color: 0x000000, alpha: 0.7 });
+    overlay.fill({ color: 0x000000, alpha: 0.85 });
     this.gameOverContainer.addChild(overlay);
     
-    // Winner text
+    // Victory banner background
+    const bannerBg = new Graphics();
+    const bannerWidth = 800;
+    const bannerHeight = 200;
+    bannerBg.roundRect(-bannerWidth/2, -bannerHeight/2, bannerWidth, bannerHeight, 20);
+    const winnerColor = this.winner === "Player 1" ? 0x4CAF50 : 0x2196F3;
+    bannerBg.fill({ color: winnerColor, alpha: 0.3 });
+    bannerBg.stroke({ width: 5, color: winnerColor });
+    bannerBg.position.set(this.app.screen.width / 2, this.app.screen.height / 2 - 100);
+    this.gameOverContainer.addChild(bannerBg);
+    
+    // Winner text with glow
     const winnerText = new Text({
-      text: `${this.winner} Wins!`,
+      text: `${this.winner} WINS!`,
       style: {
         fontFamily: 'Orbitron',
-        fontSize: 72,
+        fontSize: 84,
         fontWeight: 'bold',
-        fill: 0xFFD700,
-        stroke: { color: 0x000000, width: 6 },
+        fill: 0xFFFFFF,
+        stroke: { color: winnerColor, width: 8 },
+        dropShadow: {
+          alpha: 0.8,
+          angle: Math.PI / 6,
+          blur: 4,
+          color: winnerColor,
+          distance: 6,
+        },
       }
     });
     winnerText.anchor.set(0.5);
-    winnerText.position.set(this.app.screen.width / 2, this.app.screen.height / 2 - 50);
+    winnerText.position.set(this.app.screen.width / 2, this.app.screen.height / 2 - 100);
     this.gameOverContainer.addChild(winnerText);
     
-    // Restart button
+    // Subtitle
+    const subtitle = new Text({
+      text: 'VICTORY ACHIEVED',
+      style: {
+        fontFamily: 'Orbitron',
+        fontSize: 24,
+        fill: 0xFFD700,
+        stroke: { color: 0x000000, width: 3 },
+      }
+    });
+    subtitle.anchor.set(0.5);
+    subtitle.position.set(this.app.screen.width / 2, this.app.screen.height / 2 - 20);
+    this.gameOverContainer.addChild(subtitle);
+    
+    // Restart button with hover effect
+    const buttonContainer = new Container();
+    buttonContainer.position.set(this.app.screen.width / 2, this.app.screen.height / 2 + 100);
+    
     const buttonBg = new Graphics();
-    buttonBg.roundRect(-100, -30, 200, 60, 10);
-    buttonBg.fill({ color: 0x4CAF50 });
-    buttonBg.stroke({ width: 3, color: 0xFFFFFF });
-    buttonBg.position.set(this.app.screen.width / 2, this.app.screen.height / 2 + 80);
-    buttonBg.eventMode = 'static';
-    buttonBg.cursor = 'pointer';
+    buttonBg.roundRect(-150, -40, 300, 80, 15);
+    buttonBg.fill({ color: winnerColor });
+    buttonBg.stroke({ width: 4, color: 0xFFFFFF });
+    buttonContainer.addChild(buttonBg);
     
     const buttonText = new Text({
-      text: 'Restart Game',
+      text: 'PLAY AGAIN',
       style: {
         fontFamily: 'Orbitron',
         fontSize: 32,
         fontWeight: 'bold',
         fill: 0xFFFFFF,
+        stroke: { color: 0x000000, width: 3 },
       }
     });
     buttonText.anchor.set(0.5);
-    buttonBg.addChild(buttonText);
+    buttonContainer.addChild(buttonText);
     
-    buttonBg.on('pointerdown', () => {
+    buttonContainer.eventMode = 'static';
+    buttonContainer.cursor = 'pointer';
+    
+    // Hover animation
+    buttonContainer.on('pointerover', () => {
+      buttonContainer.scale.set(1.1);
+      buttonBg.clear();
+      buttonBg.roundRect(-150, -40, 300, 80, 15);
+      buttonBg.fill({ color: 0xFFD700 });
+      buttonBg.stroke({ width: 4, color: 0xFFFFFF });
+    });
+    
+    buttonContainer.on('pointerout', () => {
+      buttonContainer.scale.set(1);
+      buttonBg.clear();
+      buttonBg.roundRect(-150, -40, 300, 80, 15);
+      buttonBg.fill({ color: winnerColor });
+      buttonBg.stroke({ width: 4, color: 0xFFFFFF });
+    });
+    
+    buttonContainer.on('pointerdown', () => {
       window.location.reload();
     });
     
-    this.gameOverContainer.addChild(buttonBg);
+    this.gameOverContainer.addChild(buttonContainer);
+    
+    // Animate in with scale
+    this.gameOverContainer.alpha = 0;
+    this.gameOverContainer.scale.set(0.5);
+    
+    // Simple animation
+    const animateIn = () => {
+      if (this.gameOverContainer) {
+        this.gameOverContainer.alpha = Math.min(this.gameOverContainer.alpha + 0.05, 1);
+        this.gameOverContainer.scale.set(Math.min(this.gameOverContainer.scale.x + 0.05, 1));
+        
+        if (this.gameOverContainer.alpha < 1) {
+          requestAnimationFrame(animateIn);
+        }
+      }
+    };
+    animateIn();
+    
     this.uiContainer.addChild(this.gameOverContainer);
   }
   
@@ -2430,7 +3445,7 @@ export class Engine {
     
     // Add base ore income + ore from mines
     const baseOreIncome = 50;
-    const orePerMine = 25;
+    const orePerMine = 75; // Increased from 25 to 75
     const totalOreIncome = baseOreIncome + (this.playerMineCount[this.currentPlayer] * orePerMine);
     this.playerOre[this.currentPlayer] += totalOreIncome;
     
@@ -2449,6 +3464,11 @@ export class Engine {
     
     console.log(`Player ${this.currentPlayer}'s turn - Energy: ${this.playerEnergy[this.currentPlayer]}/${this.playerMaxEnergy[this.currentPlayer]}, Ore gained: ${totalOreIncome} (${baseOreIncome} base + ${this.playerMineCount[this.currentPlayer] * orePerMine} from mines)`);
     this.updateGameInfo();
+    
+    // If AI mode and it's player 2's turn, trigger AI
+    if (this.isAIMode && this.currentPlayer === 2) {
+      this.aiThinkingDelay = 60; // 1 second delay before AI starts
+    }
   }
   
   updateGameInfo() {
@@ -2466,18 +3486,18 @@ export class Engine {
     const player2Health = this.player2Base ? this.player2Base.health : 0;
     
     // Player 1 health bar
-    const p1Percent = player1Health / 1000;
+    const p1Percent = player1Health / 1200;
     this.player1HealthBarFill.clear();
     this.player1HealthBarFill.rect(0, 0, 200 * p1Percent, 20);
     this.player1HealthBarFill.fill({ color: 0x4CAF50, alpha: 0.9 });
-    this.player1HealthText.text = `${player1Health}/1000`;
+    this.player1HealthText.text = `${player1Health}/1200`;
     
     // Player 2 health bar
-    const p2Percent = player2Health / 1000;
+    const p2Percent = player2Health / 1200;
     this.player2HealthBarFill.clear();
     this.player2HealthBarFill.rect(0, 0, 200 * p2Percent, 20);
     this.player2HealthBarFill.fill({ color: 0x2196F3, alpha: 0.9 });
-    this.player2HealthText.text = `${player2Health}/1000`;
+    this.player2HealthText.text = `${player2Health}/1200`;
     
     // Update ore text with current player's color
     this.oreText.text = this.playerOre[this.currentPlayer].toString();
@@ -2492,6 +3512,504 @@ export class Engine {
     this.energyBarFill.clear();
     this.energyBarFill.rect(0, 0, 200 * energyPercent, 20);
     this.energyBarFill.fill({ color: 0xFFFF00, alpha: 0.9 });
+  }
+
+  // AI Turn Execution
+  private executeAITurn() {
+    if (this.currentPlayer !== 2 || !this.isAIMode || this.gameOver) return;
+    
+    console.log("AI is thinking...");
+    
+    // AI Strategy:
+    // 1. Build economy early (mines/solar panels)
+    // 2. Build defenses near base
+    // 3. Attack enemy base with turrets
+    
+    const myOre = this.playerOre[2];
+    const myEnergy = this.playerEnergy[2];
+    const myBase = this.player2Base;
+    const enemyBase = this.player1Base;
+    
+    if (!myBase || !enemyBase) {
+      this.endTurn();
+      return;
+    }
+    
+    // Priority 1: Build economy if we have few mines/solar panels
+    if (this.playerMineCount[2] < 2 && myOre >= 100) {
+      const built = this.aiBuildNearBase(myBase, 'mine');
+      if (built) {
+        console.log("AI built a mine");
+        this.aiThinkingDelay = 30; // Small delay before next action
+        return;
+      }
+    }
+    
+    if (this.playerSolarCount[2] < 1 && myOre >= 75) {
+      const built = this.aiBuildNearBase(myBase, 'solar');
+      if (built) {
+        console.log("AI built a solar panel");
+        this.aiThinkingDelay = 30;
+        return;
+      }
+    }
+    
+    // Priority 2: Build shield if we don't have one
+    const hasShield = this.aiHasBuildingType('shield');
+    if (!hasShield && myOre >= 300) {
+      const built = this.aiBuildNearBase(myBase, 'shield');
+      if (built) {
+        console.log("AI built a shield");
+        this.aiThinkingDelay = 30;
+        return;
+      }
+    }
+    
+    // Priority 3: Attack with turrets (lower requirements)
+    if (myOre >= 100 && myEnergy >= 20) {
+      const turretBuilt = this.aiBuildOffensiveStructure(myBase);
+      if (turretBuilt) {
+        console.log("AI built an offensive turret");
+        this.aiThinkingDelay = 30;
+        return;
+      }
+    }
+    
+    // Priority 4: Fire existing turrets at enemy base (use ~40% of available ammo)
+    // Only fire if we have enough energy
+    if (myEnergy >= 25) {
+      const shotsFired = this.aiFireTurrets(enemyBase);
+      if (shotsFired > 0) {
+        console.log(`AI fired ${shotsFired} shots`);
+        // Continue turn after firing to potentially do other actions
+      }
+    }
+    
+    // No actions left, end turn
+    console.log("AI ending turn");
+    this.endTurn();
+  }
+  
+  private aiHasBuildingType(type: string): boolean {
+    for (let y = 0; y < this.GRID_HEIGHT; y++) {
+      for (let x = 0; x < this.GRID_WIDTH; x++) {
+        const cell = this.grid[y][x];
+        if (cell.sprite && cell.sprite.owner === 2) {
+          if (type === 'shield' && cell.sprite.name === 'Dome Shield') return true;
+          if (type === 'mine' && cell.sprite.name === 'Mine') return true;
+          if (type === 'solar' && cell.sprite.name === 'Solar Panel') return true;
+        }
+      }
+    }
+    return false;
+  }
+  
+  private aiBuildNearBase(base: PlanetSprite, buildingType: string): boolean {
+    const baseX = base.centerX!;
+    const baseY = base.centerY!;
+    
+    // Try to find a spot near base but outside shield radius
+    const searchRadius = 40;
+    const minDist = this.shieldRadius + 5;
+    
+    for (let attempts = 0; attempts < 50; attempts++) {
+      const angle = Math.random() * Math.PI * 2;
+      const dist = minDist + Math.random() * (searchRadius - minDist);
+      const x = Math.floor(baseX + Math.cos(angle) * dist);
+      const y = Math.floor(baseY + Math.sin(angle) * dist);
+      
+      if (x < 0 || x >= this.GRID_WIDTH || y < 0 || y >= this.GRID_HEIGHT) continue;
+      
+      let texture = null;
+      let cost = 0;
+      let spriteKind: any = '';
+      let scaleTiles = TURRET_TILES; // Default to 4 tiles
+      
+      if (buildingType === 'mine') {
+        texture = this.mineTexture;
+        cost = 100;
+        spriteKind = 'mine';
+        scaleTiles = TURRET_TILES; // 4 tiles for mine
+      } else if (buildingType === 'solar') {
+        texture = this.solarPanelTexture;
+        cost = 75;
+        spriteKind = 'solarPanel';
+        scaleTiles = TURRET_TILES; // 4 tiles for solar panel
+      } else if (buildingType === 'shield') {
+        texture = this.domeShieldTexture;
+        cost = 75; // Match player cost
+        spriteKind = 'domeShield';
+        scaleTiles = 10; // 10 tiles for dome shield (matches player)
+      }
+      
+      if (!texture) continue;
+      
+      const sprite = createSprite(spriteKind, {
+        texture: texture,
+        centerX: x,
+        centerY: y
+      });
+      
+      sprite.owner = 2;
+      
+      // Calculate rotation for dome shield to be tangential
+      let rotation = 0;
+      if (buildingType === 'shield' && this.player2Base) {
+        const planetPos = this.player2Base.getDisplay().position;
+        const worldPos = this.gridToWorld(x, y);
+        const dx = worldPos.x - planetPos.x;
+        const dy = worldPos.y - planetPos.y;
+        const angleToCenter = Math.atan2(dy, dx);
+        rotation = angleToCenter + Math.PI / 2; // Tangential rotation
+        sprite.rotation = rotation;
+      }
+      
+      // Apply proper scaling based on building type
+      const spriteScale = ((this.TILE_SIZE * scaleTiles) / Math.max(texture.width, texture.height));
+      const spriteDisplay = sprite.getDisplay() as Sprite;
+      spriteDisplay.scale.set(spriteScale);
+      if (buildingType === 'shield') {
+        spriteDisplay.rotation = rotation;
+      }
+      
+      const canPlace = this.canPlaceInRadius(x, y, sprite.radius, sprite.shape, sprite.width, sprite.height, rotation);
+      
+      // Check if within AI's shield (player 2's shield)
+      const withinShield = buildingType === 'shield' || this.isPositionWithinShield(x, y, 2);
+      
+      if (canPlace && withinShield && this.playerOre[2] >= cost) {
+        const placed = this.placeSprite(x, y, sprite, rotation);
+        if (placed) {
+          this.playerOre[2] -= cost;
+          
+          // Update counters
+          if (buildingType === 'mine') {
+            this.playerMineCount[2]++;
+            console.log(`AI mine count: ${this.playerMineCount[2]}`);
+          } else if (buildingType === 'solar') {
+            this.playerSolarCount[2]++;
+            this.playerMaxEnergy[2] += 50;
+            console.log(`AI solar count: ${this.playerSolarCount[2]}, max energy: ${this.playerMaxEnergy[2]}`);
+          }
+          
+          this.soundManager.play('placeBuilding');
+          this.updateGameInfo();
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+  
+  private aiBuildOffensiveStructure(myBase: PlanetSprite): boolean {
+    const myX = myBase.centerX!;
+    const myY = myBase.centerY!;
+    
+    console.log(`AI attempting to build turret. Ore: ${this.playerOre[2]}, Energy: ${this.playerEnergy[2]}`);
+    
+    // Try to place turret within shield radius (around our base)
+    for (let attempts = 0; attempts < 50; attempts++) {
+      // Place near our base but within shield
+      const angle = Math.random() * Math.PI * 2;
+      const dist = this.shieldRadius * 0.5 + Math.random() * this.shieldRadius * 0.4; // 50-90% of shield radius
+      const x = Math.floor(myX + Math.cos(angle) * dist);
+      const y = Math.floor(myY + Math.sin(angle) * dist);
+      
+      if (x < 0 || x >= this.GRID_WIDTH || y < 0 || y >= this.GRID_HEIGHT) continue;
+      
+      // Check if within shield
+      const dx = x - myX;
+      const dy = y - myY;
+      const distFromBase = Math.sqrt(dx * dx + dy * dy);
+      if (distFromBase > this.shieldRadius) {
+        continue;
+      }
+      
+      // Random choice between regular turret and laser turret
+      const useLaser = Math.random() > 0.5;
+      const texture = this.turretTexture;
+      const spriteKind = useLaser ? 'laserTurret' : 'turret';
+      const cost = useLaser ? 100 : 150;
+      const energyCost = 20;
+      
+      if (!texture) continue;
+      
+      const sprite = createSprite(spriteKind, {
+        texture: texture,
+        name: useLaser ? "Laser Turret" : "Turret"
+      });
+      
+      sprite.owner = 2;
+      
+      // Apply proper scaling and flipping like player does
+      const spriteScale = ((this.TILE_SIZE * TURRET_TILES) / Math.max(texture.width, texture.height));
+      const spriteDisplay = sprite.getDisplay() as Sprite;
+      spriteDisplay.scale.set(spriteScale);
+      
+      // Flip turret if on right half of screen (same as player logic)
+      if (x > this.GRID_WIDTH / 2) {
+        spriteDisplay.scale.x = -spriteScale;
+      }
+      
+      const canPlace = this.canPlaceInRadius(x, y, sprite.radius, sprite.shape, sprite.width, sprite.height, sprite.rotation);
+      
+      if (canPlace && this.playerOre[2] >= cost && this.playerEnergy[2] >= energyCost) {
+        const placed = this.placeSprite(x, y, sprite);
+        if (placed) {
+          this.playerOre[2] -= cost;
+          this.playerEnergy[2] -= energyCost;
+          this.soundManager.play('placeBuilding');
+          console.log(`AI successfully placed ${useLaser ? 'laser turret' : 'turret'} at (${x}, ${y})`);
+          this.updateGameInfo();
+          return true;
+        }
+      }
+    }
+    
+    console.log("AI failed to place turret after 50 attempts");
+    return false;
+  }
+  
+  private aiFireTurrets(enemyBase: PlanetSprite): number {
+    const enemyX = enemyBase.centerX!;
+    const enemyY = enemyBase.centerY!;
+    const enemyWorld = this.gridToWorld(enemyX, enemyY);
+    
+    // Find AI's own base to avoid shooting it
+    let myBase: PlanetSprite | null = null;
+    for (let y = 0; y < this.GRID_HEIGHT; y++) {
+      for (let x = 0; x < this.GRID_WIDTH; x++) {
+        const cell = this.grid[y][x];
+        if (cell.sprite && cell.sprite.owner === 2 && cell.sprite.name === 'Base Planet') {
+          myBase = cell.sprite as PlanetSprite;
+          break;
+        }
+      }
+      if (myBase) break;
+    }
+    
+    const myBaseWorld = myBase ? this.gridToWorld(myBase.centerX!, myBase.centerY!) : null;
+    
+    // Find all AI turrets with ammo
+    const turrets: any[] = [];
+    let totalAmmo = 0;
+    for (let y = 0; y < this.GRID_HEIGHT; y++) {
+      for (let x = 0; x < this.GRID_WIDTH; x++) {
+        const cell = this.grid[y][x];
+        if (cell.sprite && cell.sprite.owner === 2) {
+          const sprite = cell.sprite as any;
+          if ((sprite.name === 'Turret' || sprite.name === 'Laser Turret') && sprite.ammo > 0) {
+            turrets.push({ sprite, x: cell.centerX!, y: cell.centerY! });
+            totalAmmo += sprite.ammo;
+          }
+        }
+      }
+    }
+    
+    console.log(`AI found ${turrets.length} turrets with ${totalAmmo} total ammo`);
+    
+    if (turrets.length === 0 || totalAmmo === 0) return 0;
+    
+    // Calculate 40% of total ammo, minimum 1, maximum available energy allows
+    const shotsToFire = Math.max(1, Math.floor(totalAmmo * 0.4));
+    const maxShotsFromEnergy = Math.floor(this.playerEnergy[2] / 25); // Assume average 25 energy per shot
+    const actualShots = Math.min(shotsToFire, maxShotsFromEnergy, totalAmmo);
+    
+    console.log(`AI planning to fire ${actualShots} shots (40% of ${totalAmmo} ammo, energy allows ${maxShotsFromEnergy})`);
+    
+    let shotsFired = 0;
+    
+    // Fire multiple shots
+    for (let i = 0; i < actualShots; i++) {
+      // Find turrets that still have ammo
+      const availableTurrets = turrets.filter(t => t.sprite.ammo > 0);
+      if (availableTurrets.length === 0) break;
+      
+      // Randomly select a turret
+      const turretData = availableTurrets[Math.floor(Math.random() * availableTurrets.length)];
+      const turretWorld = this.gridToWorld(turretData.x, turretData.y);
+    
+    // Try different velocities to find one that hits close to target
+    let bestVx = 0;
+    let bestVy = 0;
+    let bestDistance = Infinity;
+    
+    // Test multiple angles and speeds
+    for (let speedMult = 2; speedMult <= 6; speedMult += 0.5) {
+      for (let angleDeg = -180; angleDeg <= 180; angleDeg += 10) {
+        const angle = (angleDeg * Math.PI) / 180;
+        const testVx = Math.cos(angle) * speedMult;
+        const testVy = Math.sin(angle) * speedMult;
+        
+        // Simulate this trajectory
+        const result = this.simulateTrajectoryWithCollision(
+          turretWorld.x, turretWorld.y, 
+          testVx, testVy, 
+          enemyWorld.x, enemyWorld.y,
+          myBaseWorld
+        );
+        
+        // Skip if trajectory would hit our own base
+        if (result.hitsOwnBase) continue;
+        
+        const endDist = result.closestDistToTarget;
+        
+        if (endDist < bestDistance) {
+          bestDistance = endDist;
+          bestVx = testVx;
+          bestVy = testVy;
+        }
+      }
+    }
+    
+    // Skip this shot if no safe trajectory found
+    if (bestDistance === Infinity) {
+      console.log("AI skipped shot - all trajectories would hit own base");
+      continue;
+    }
+    
+    // Add slight inaccuracy to make it more realistic
+    const inaccuracy = 0.15;
+    const vx = bestVx + (Math.random() - 0.5) * inaccuracy * 2;
+    const vy = bestVy + (Math.random() - 0.5) * inaccuracy * 2;
+    
+    // Fire the turret using EXACT SAME LOGIC AS PLAYER
+    const turret = turretData.sprite;
+    const isLaserTurret = turret.name === 'Laser Turret';
+    const projectileTexture = isLaserTurret ? this.laserTexture : this.missileTexture;
+    const soundEffect = isLaserTurret ? 'laser' : 'missileFire';
+    
+    if (!projectileTexture) continue;
+    
+    // Create projectile exactly like player does
+    const projectile = createSprite("bunny", {
+      texture: projectileTexture,
+      name: "Projectile",
+    });
+    
+    // Scale the projectile (same as player)
+    const BUNNY_TILES = 1;
+    const projectileScale = ((this.TILE_SIZE * BUNNY_TILES) / Math.max(projectileTexture.width, projectileTexture.height));
+    (projectile.getDisplay() as Sprite).scale.set(projectileScale);
+    
+    // Position at turret location
+    const turretPos = turret.getDisplay().position;
+    projectile.getDisplay().position.set(turretPos.x, turretPos.y);
+    
+    // Set velocity from AI calculation
+    projectile.vx = vx;
+    projectile.vy = vy;
+    
+    // Store reference to firing turret and damage (same as player)
+    (projectile as any).firingTurret = turret;
+    (projectile as any).damage = turret.damage || 50;
+    (projectile as any).isLaser = isLaserTurret;
+    
+    // Add to world and projectiles array (same as player)
+    this.world.addChild(projectile.getDisplay());
+    this.projectiles.push(projectile);
+    
+    // Create particle trail for this projectile (same as player)
+    this.particleTrails.set(projectile, []);
+    
+    // Decrement turret ammo (same as player)
+    if (turret.ammo !== undefined) {
+      turret.ammo--;
+    }
+    
+    // Deduct energy cost (same as player)
+    const energyCost = isLaserTurret ? 25 : 50;
+    this.playerEnergy[2] -= energyCost;
+    
+    this.soundManager.play(soundEffect);
+    shotsFired++;
+    }
+    
+    this.updateGameInfo();
+    console.log(`AI fired ${shotsFired} shots total`);
+    
+    return shotsFired;
+  }
+  
+  // Simulate projectile trajectory and return closest distance to target
+  private simulateTrajectoryWithCollision(
+    startX: number, startY: number, 
+    vx: number, vy: number, 
+    targetX: number, targetY: number,
+    ownBaseWorld: { x: number, y: number } | null
+  ): { closestDistToTarget: number, hitsOwnBase: boolean } {
+    let posX = startX;
+    let posY = startY;
+    let velX = vx;
+    let velY = vy;
+    let closestDist = Infinity;
+    let hitsOwnBase = false;
+    
+    const maxSteps = 300;
+    const deltaTime = 1.0;
+    const MAX_VELOCITY = 8;
+    const BASE_COLLISION_RADIUS = 80; // Approximate collision radius for base planet
+    
+    for (let i = 0; i < maxSteps; i++) {
+      // Get grid position
+      const gridX = Math.floor(posX / this.TILE_SIZE);
+      const gridY = Math.floor(posY / this.TILE_SIZE);
+      
+      // Check if projectile would hit our own base
+      if (ownBaseWorld) {
+        const dx = posX - ownBaseWorld.x;
+        const dy = posY - ownBaseWorld.y;
+        const distToOwnBase = Math.sqrt(dx * dx + dy * dy);
+        if (distToOwnBase < BASE_COLLISION_RADIUS) {
+          hitsOwnBase = true;
+          break;
+        }
+      }
+      
+      // Check distance to target
+      const dx = posX - targetX;
+      const dy = posY - targetY;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist < closestDist) {
+        closestDist = dist;
+      }
+      
+      // Get gravity at this position
+      let ax = 0;
+      let ay = 0;
+      if (gridX >= 0 && gridX < this.GRID_WIDTH && gridY >= 0 && gridY < this.GRID_HEIGHT) {
+        ax = this.grid[gridY][gridX].gravity.ax;
+        ay = this.grid[gridY][gridX].gravity.ay;
+      }
+      
+      // Apply gravity
+      velX += ax * deltaTime;
+      velY += ay * deltaTime;
+      
+      // Clamp velocity
+      const speed = Math.sqrt(velX * velX + velY * velY);
+      if (speed > MAX_VELOCITY) {
+        velX = (velX / speed) * MAX_VELOCITY;
+        velY = (velY / speed) * MAX_VELOCITY;
+      }
+      
+      // Update position
+      posX += velX * deltaTime;
+      posY += velY * deltaTime;
+      
+      // Stop if out of bounds
+      if (posX < 0 || posX > this.GRID_WIDTH * this.TILE_SIZE || 
+          posY < 0 || posY > this.GRID_HEIGHT * this.TILE_SIZE) {
+        break;
+      }
+      
+      // If we got very close to target, we can stop early
+      if (dist < 50) {
+        break;
+      }
+    }
+    
+    return { closestDistToTarget: closestDist, hitsOwnBase };
   }
 
   // Draw trajectory for gun firing (ignoring launch planet gravity)

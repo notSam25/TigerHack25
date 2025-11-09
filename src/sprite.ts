@@ -14,7 +14,10 @@ export abstract class GameSprite {
   maxHealth: number;
   radius: number;
   immutable: boolean;
-  shape: "circle" | "square"; // Determines if radius creates circle or square
+  shape: "circle" | "square" | "rectangle"; // Determines if radius creates circle, square, or rectangle
+  width?: number; // For rectangles: width in tiles (x-direction)
+  height?: number; // For rectangles: height in tiles (y-direction)
+  rotation?: number; // For rotated rectangles: rotation angle in radians
   owner: number; // 0 = neutral, 1 = player 1, 2 = player 2
   
   // Physics properties
@@ -32,8 +35,10 @@ export abstract class GameSprite {
     maxHealth: number = 100,
     radius: number = 0,
     immutable: boolean = false,
-    shape: "circle" | "square" = "circle",
-    owner: number = 0
+    shape: "circle" | "square" | "rectangle" = "circle",
+    owner: number = 0,
+    width?: number,
+    height?: number
   ) {
     this.display = display;
     this.name = name;
@@ -44,6 +49,8 @@ export abstract class GameSprite {
     this.immutable = immutable;
     this.shape = shape;
     this.owner = owner;
+    this.width = width;
+    this.height = height;
   }
 
   // Called each engine tick with delta time and acceleration from gravity
@@ -111,10 +118,10 @@ export class TurretSprite extends GameSprite {
   constructor(texture: Texture) {
     const sprite = new Sprite(texture);
     sprite.anchor.set(0.5);
-    super(sprite, "Turret", "Weapon", 200, 200, 0, true, "square"); // Radius 0 + square = 2x2 (0 to 1 in both directions)
-    this.ammo = 3; // Start with 3 ammo
-    this.maxAmmo = 3; // Max ammo cap
-    this.damage = 200; // Missile damage
+    super(sprite, "Turret", "Weapon", 200, 200, 2, true, "square"); // Radius 2 = 4x4 tiles
+    this.ammo = 0; // Start with 0 ammo, regenerate on first turn
+    this.maxAmmo = 1; // Max ammo cap
+    this.damage = 250; // Missile damage - increased for faster games
     this.ammoRegenRate = 1; // Regenerate 1 ammo per turn
   }
 
@@ -133,11 +140,11 @@ export class LaserTurretSprite extends GameSprite {
   constructor(texture: Texture) {
     const sprite = new Sprite(texture);
     sprite.anchor.set(0.5);
-    super(sprite, "Laser Turret", "Weapon", 150, 150, 0, true, "square"); // Radius 0 + square = 2x2
-    this.ammo = 6; // Start with 6 ammo
-    this.maxAmmo = 6; // Max ammo cap
-    this.damage = 75; // Laser damage
-    this.ammoRegenRate = 2; // Regenerate 2 ammo per turn
+    super(sprite, "Laser Turret", "Weapon", 150, 150, 2, true, "square"); // Radius 2 = 4x4 tiles
+    this.ammo = 0; // Start with 0 ammo, regenerate on first turn
+    this.maxAmmo = 3; // Max ammo cap
+    this.damage = 100; // Laser damage - increased for faster games
+    this.ammoRegenRate = 1; // Regenerate 1 ammo per turn
   }
 
   update(delta: number, ax: number = 0, ay: number = 0) {
@@ -150,7 +157,7 @@ export class MineSprite extends GameSprite {
   constructor(texture: Texture) {
     const sprite = new Sprite(texture);
     sprite.anchor.set(0.5);
-    super(sprite, "Mine", "Resource", 100, 100, 0, true, "square"); // Radius 0 + square = 2x2
+    super(sprite, "Mine", "Resource", 100, 100, 1, true, "square"); // Radius 1 = 3x3 tiles
   }
 
   update(delta: number, ax: number = 0, ay: number = 0) {
@@ -163,11 +170,24 @@ export class SolarPanelSprite extends GameSprite {
   constructor(texture: Texture) {
     const sprite = new Sprite(texture);
     sprite.anchor.set(0.5);
-    super(sprite, "Solar Panel", "Resource", 80, 80, 0, true, "square"); // Radius 0 + square = 2x2
+    super(sprite, "Solar Panel", "Resource", 80, 80, 1, true, "square"); // Radius 1 = 3x3 tiles
   }
 
   update(delta: number, ax: number = 0, ay: number = 0) {
     // Solar panels don't move (immutable)
+    void delta; void ax; void ay;
+  }
+}
+
+export class DomeShieldSprite extends GameSprite {
+  constructor(texture: Texture) {
+    const sprite = new Sprite(texture);
+    sprite.anchor.set(0.5);
+    super(sprite, "Dome Shield", "Defense", 500, 500, 0, true, "rectangle", 0, 8, 2); // 8x2 rectangle
+  }
+
+  update(delta: number, ax: number = 0, ay: number = 0) {
+    // Dome shields don't move (immutable)
     void delta; void ax; void ay;
   }
 }
@@ -249,7 +269,7 @@ export class PlanetSprite extends GameSprite {
       container.addChild(shield);
     }
     
-    super(container, name, "Planet", 1000, 1000, 25, true);
+    super(container, name, "Planet", 1200, 1200, 25, true); // Reduced for 6-7 turn games
     
     this.shield = shield;
     this.rotationSpeed = rotationSpeed;
@@ -361,7 +381,7 @@ export class GenericSprite extends GameSprite {
   }
 }
 
-export type SpriteKind = "bunny" | "turret" | "laserTurret" | "mine" | "solarPanel" | "asteroid" | "blackhole" | "planet" | "generic";
+export type SpriteKind = "bunny" | "turret" | "laserTurret" | "mine" | "solarPanel" | "domeShield" | "asteroid" | "blackhole" | "planet" | "generic";
 
 /**
  * Factory to create sprites of different kinds.
@@ -412,6 +432,13 @@ export function createSprite(
       throw new Error('createSprite("solarPanel") requires options.texture');
     }
     return new SolarPanelSprite(options.texture);
+  }
+  
+  if (kind === "domeShield") {
+    if (!options || !options.texture) {
+      throw new Error('createSprite("domeShield") requires options.texture');
+    }
+    return new DomeShieldSprite(options.texture);
   }
 
   if (kind === "asteroid") {
